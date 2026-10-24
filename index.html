@@ -1170,7 +1170,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-10-24 00:53
+生成：2026-10-24 18:17
 </div>
 </footer>
 
@@ -6916,7 +6916,7 @@ footer{margin-top:14px;padding-top:10px}
          期货   新浪直连 → 东财 → OneView 胶囊
          美股   新浪直连 → 同花顺 → OneView 胶囊
 
-     ★★ 访问路径：GitHub 私有仓库 Astroone1/OneView-Data
+     ★★ 访问路径：用户自建的 GitHub 私有仓库
         经 Contents API 直连，不依赖任何本机服务。
 
             Data/<M>/<SYM>_<TF>.json
@@ -6973,7 +6973,7 @@ footer{margin-top:14px;padding-top:10px}
     enabled: true,
     /* ★★ 数据源：「GitHub 私有仓库 + Contents API」直连。
 
-       仓库：Astroone1/OneView-Data（私有）
+       仓库：由用户在弹窗里填（owner / repo / branch）
        目录：Data/{B,O,Q,A,M}/<SYM>_<TF>.json
 
        ★ GitHub API 没有 UA 限制、CORS 全开，浏览器可直连，手机也能用。
@@ -10321,7 +10321,7 @@ footer{margin-top:14px;padding-top:10px}
         GitHub API 没有 UA 限制、CORS 全开（实测 ACAO: *），
         浏览器可直连，手机也能用，不需要任何本机服务。
 
-     ★ 存哪里：仓库 OneView-Data 的 Fib/ 目录，与行情胶囊 Data/ 并列。
+     ★ 存哪里：用户自建私有仓库的 Fib/ 目录，与行情胶囊 Data/ 并列。
          Fib/watchlist.json   自选列表
          Fib/drawings.json    画线标注
        分两个文件是因为两者体量、变更频率、损坏影响都不同，合并会互相连累。
@@ -10335,7 +10335,7 @@ footer{margin-top:14px;padding-top:10px}
      ================================================================== */
 
   var CLOUD = {
-    /* ★★ 存「GitHub 私有仓库 Astroone1/OneView-Data」。
+    /* ★★ 存「用户自建 GitHub 私有仓库」。
 
        目录结构（与行情胶囊 Data/ 并列）：
          Fib/watchlist.json   自选列表
@@ -10940,9 +10940,9 @@ footer{margin-top:14px;padding-top:10px}
       autoClose: false,
       fields: [
         { key: 'owner', label: 'GitHub 用户名', type: 'text',
-          placeholder: '例如 Astroone1', value: c.owner || '' },
+          placeholder: '你的 GitHub 用户名', value: c.owner || '' },
         { key: 'repo', label: '私有仓库名', type: 'text',
-          placeholder: '例如 OneView-Data', value: c.repo || '' },
+          placeholder: '你的私有仓库名', value: c.repo || '' },
         { key: 'branch', label: '分支', type: 'text',
           placeholder: 'main', value: c.branch || 'main' },
         { key: 'token', label: '细粒度令牌 (github_pat_...)', type: 'password',
