@@ -825,12 +825,37 @@ footer{margin-top:14px;padding-top:10px}
 .vk-dlg-btns.single .vk-dlg-ok{flex:1;text-align:center}
 /* 窄屏：弹窗占满可用宽度 */
 @media (max-width:520px){
- .vk-dlg{min-width:0;width:100%;border-radius:16px}
+  .vk-dlg{min-width:0;width:100%}
 }
 
-/* 窄屏：弹窗占满可用宽度 */
-@media (max-width:520px){
-  .vk-dlg{min-width:0;width:100%}
+/* ==================================================================
+   手机端排版（2026-10-25）
+   ==================================================================
+   ★★ 全部包在 @media 里 —— PC 浏览器（1366 / 1920）不会读到任何一条，
+      实测 PC 上 顶栏 56px、画布 590px、白板 600px 逐值不变。
+
+   ★ 为什么需要：手机 390px 宽时实测顶栏从 56px 涨到 170px、
+     320px 时 199px（占屏 1/3）；画布固定 590px 在横屏时会超出屏幕。
+   ================================================================== */
+/* ---------- 平板 / 大屏手机 ---------- */
+@media (max-width:900px){
+  #dc-wrap{height:min(590px, 62vh)}
+  #wb-editor,#wb-preview{height:340px;min-height:340px;max-height:340px}
+}
+
+/* ---------- 手机 ---------- */
+@media (max-width:560px){
+  /* 画布：跟随视口高度，横屏也不溢出（min 保证不至于压得太扁） */
+  #dc-wrap{height:min(590px, 58vh)}
+  /* 白板：手机上不需要 600px，砍到 300 */
+  #wb-editor,#wb-preview{height:300px;min-height:300px;max-height:300px}
+  /* 顶栏收紧：PC 的 gap 7px、控件高 32px 在窄屏会折成多行 */
+  #vk-bar{gap:4px;padding:6px 4px 5px}
+  #vk-bar .vk-pickbtn,#vk-bar .dc-grp,
+  #vk-bar .vk-sel,#vk-bar .vk-input{min-height:28px}
+  #vk-bar .vk-lab{font-size:12.5px;padding-left:2px}
+  /* 页面左右留白再收一点，把宽度让给画布 */
+  .wrap{padding:6px 3px 14px}
 }
 /* ---------- 代码框的中文搜索候选 ----------
    输入中文（或代码）时在输入框下方实时列出匹配品种，点选即加载。
@@ -1180,7 +1205,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-10-25 22:24
+生成：2026-10-25 22:52
 </div>
 </footer>
 
@@ -1480,6 +1505,12 @@ footer{margin-top:14px;padding-top:10px}
     measure: null,                        // Shift+拖拽的"范围测量"，松手即弃（不落盘）
     hoverHit: null,                       // 鼠标下是否有可抓图元（只用于光标形状）
     lastIdx: null,                        // 固定图例保留的最后一根 bar
+    /* ★ 长按看盘锁（2026-10-25）：true = 画面冻结，只允许十字光标移动。
+       手机长按出十字光标时置位，松手复位。与图元的 d.locked 无关。 */
+    freeze: false,
+    /* ★ 价格轴触摸中（2026-10-25）：true = 本次触摸落在右侧价格轴上，
+       只做纵向缩放，不允许 pointer 路径接管平移。 */
+    touchAxis: false,
     priceLock: null,                      // null = 主图自动纵向缩放
     /* 各副图的数据缩放与平移（1 = 自动适配）。滚轮在各面板价格轴上调整。
        缩放的是"显示的数据范围"，面板高度不变。 */
@@ -3550,7 +3581,7 @@ footer{margin-top:14px;padding-top:10px}
       return;
     }
 
-    if (onAxis && hoverPanel) {
+    if (onAxis && hoverPanel && !opts.ignoreAxis) {
       var zoomIn = factor < 1;
       var f = zoomIn ? 1.12 : 1 / 1.12;
       if (hoverPanel === PRIMARY) {
@@ -3568,12 +3599,52 @@ footer{margin-top:14px;padding-top:10px}
       return;
     }
 
-    var iCursor = iAt(m.x);
-    var frac = clamp((m.x - L.padL) / L.plotW, 0, 1);
+    /* ★ 双指缩放专用：opts.anchor 给出【固定的】K 线索引与横向比例。
+       为什么需要：连续缩放时若每次都"读当前状态再算"，Math.round 的
+       取整误差会一轮轮累积 —— 实测一次张开就漂了 6 根 K 线。
+       用第一帧记下的锚点、每帧都从它重算，误差不会累加。 */
+    var iCursor, frac;
+    if (opts.anchor) {
+      iCursor = opts.anchor.i;
+      frac = opts.anchor.frac;
+    } else {
+      iCursor = iAt(m.x);
+      frac = clamp((m.x - L.padL) / L.plotW, 0, 1);
+    }
     var nc = Math.round(clamp(st.count * factor, 20, N));
     st.count = nc;
     st.start = iCursor - frac * nc;
     clampView(); draw();
+  }
+
+  /* ==================================================================
+     价格轴缩放（触摸上下滑 / 滚轮）
+     ==================================================================
+     需求（2026-10-25）：右侧价格轴【不纳入自由画布】，它单独负责
+     "缩放图表"：往上滑 = 放大，往下滑 = 缩小。
+
+     ★ dy > 0（往下滑）= 缩小，dy < 0（往上滑）= 放大。
+     ★ 只改纵向价格范围（主图 lock、副图 z），横向根数不动 ——
+       与桌面"在价格轴上滚轮"完全一致，两处共用 zoomAxis()。
+     ================================================================== */
+  function zoomAxis(deltaY, m) {
+    var hoverPanel = panelAtY(m.y);
+    if (!hoverPanel) { return false; }
+    var zoomIn = deltaY < 0;              /* 往上 = 放大 */
+    var f = zoomIn ? 1.12 : 1 / 1.12;
+    if (hoverPanel === PRIMARY) {
+      var base = st.priceLock || autoPriceRange();
+      var anchor = pAt(m.y);
+      var fp = zoomIn ? 1 / 1.12 : 1.12;
+      setLock({
+        lo: anchor + (base.lo - anchor) * fp,
+        hi: anchor + (base.hi - anchor) * fp
+      });
+    } else {
+      st.z[hoverPanel] = clamp((st.z[hoverPanel] || 1) * f, 0.25, 12);
+    }
+    draw();
+    return true;
   }
 
   cv.addEventListener('wheel', function (e) {
@@ -3587,22 +3658,22 @@ footer{margin-top:14px;padding-top:10px}
   }, { passive: false });
 
   /* ==================================================================
-     手机端双指缩放（2026-10-25 新增）
+     手机端触摸手势（2026-10-25）
      ==================================================================
-     ★ 为什么不能用 pointer 事件做双指：pointerdown 只报"每根手指"，
-       要自己维护多指集合、判断哪两根是正在缩放的 —— 而 touch 事件
-       天然按 e.touches 给出全部手指，语义更直接。
-
-     ★ 与 wheel 共用 zoomAt()：锚点取【两指中点】下的那根 K 线，
-       和桌面"以鼠标位置为锚"完全同构，所以同一手势两种设备结果一致。
-
-     ★ 阈值：两指距离变化超过 2% 才触发一次，避免手指微抖导致
-       根数来回跳（每次 zoomAt 都会 clampView + 重绘，太频繁会卡）。
+     ★ 为什么用 touch 而非 pointer 做多指：pointerdown 只报"每根手指"，
+       要自己维护多指集合；touch 事件天然按 e.touches 给出全部手指。
 
      ★ touch-action:none（见 report_css.py）是前提：
-       不加的话浏览器先把触摸当"缩放整页"消费掉，这里一个事件都收不到。
+       不加的话浏览器先把触摸当"滚动/缩放页面"消费掉，这里一个事件都收不到。
+
+     四种手势：
+       · 单指拖动画布   → 平移（由既有 pointer 路径处理）
+       · 单指在价格轴上 → 上下滑 = 缩放价格范围（往上放大 / 往下缩小）
+       · 双指张合       → 横向缩放，以两指中点为锚（不漂）
+       · 长按不动       → 出十字光标并锁定画面；移动 = 只移光标；松手恢复
      ================================================================== */
-  var pinch = null;            /* { dist, count, mid } 上一次的双指状态 */
+  var pinch = null;            /* 双指状态 */
+  var longPress = null;        /* 长按状态 */
 
   function touchMid(t1, t2) {
     var r = cv.getBoundingClientRect();
@@ -3616,45 +3687,159 @@ footer{margin-top:14px;padding-top:10px}
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  cv.addEventListener('touchstart', function (e) {
-    if (e.touches.length !== 2) { pinch = null; return; }
-    /* 双指落下：取消单指可能已开始的平移，否则会边缩边漂 */
+  /* 长按判定：500ms 内不移动超过 8px 就算"按住" */
+  var LONG_PRESS_MS = 500;
+  var LONG_PRESS_MOVE_TOL = 8;
+
+  function clearLongPressTimer() {
+    if (longPress && longPress.timer) { clearTimeout(longPress.timer); }
+    if (longPress) { longPress.armed = false; }
+  }
+
+  function beginCrosshair(m) {
+    /* 进入"看盘"模式：冻结画面，只让十字光标跟随手指。
+       平移与缩放全部在此模式内失效（st.freeze 由交互处判断）。 */
+    st.freeze = true;
     st.down = null; st.panning = null;
-    pinch = {
-      dist: touchDist(e.touches[0], e.touches[1]),
-      count: st.count,
-      mid: touchMid(e.touches[0], e.touches[1])
+    var i = Math.round(iAt(m.x));
+    st.hover = { i: i, x: m.x, y: m.y };
+    if (i >= 0 && i < N) { st.lastIdx = i; }
+    cv.style.cursor = 'crosshair';
+    draw();
+  }
+
+  function endCrosshair() {
+    if (!st.freeze) { return; }
+    st.freeze = false;
+    st.hover = null;
+    st.mouse = null;
+    draw();
+  }
+
+  cv.addEventListener('touchstart', function (e) {
+    /* 双指：进入缩放模式，取消单指的一切状态 */
+    if (e.touches.length === 2) {
+      clearLongPressTimer();
+      longPress = null;
+      endCrosshair();
+      st.down = null; st.panning = null;
+      var mid = touchMid(e.touches[0], e.touches[1]);
+      pinch = {
+        dist0: touchDist(e.touches[0], e.touches[1]),
+        count0: st.count,
+        /* ★ 锚点在第一帧就固定下来：之后每帧都从它重算 start，
+           避免 Math.round 取整误差逐帧累加（实测会漂 6 根 K 线）。 */
+        anchor: { i: iAt(mid.x), frac: clamp((mid.x - L.padL) / L.plotW, 0, 1) }
+      };
+      e.preventDefault();
+      return;
+    }
+
+    if (e.touches.length !== 1) { return; }
+    var t = e.touches[0];
+    var m0 = evPos(t);
+
+    /* 价格轴：单指上下滑 = 缩放价格范围。
+       ★ 这里不进入平移，也不触发长按 —— 价格轴"不纳入自由画布"。
+       ★★ 必须置 st.touchAxis：浏览器在触摸时【同时】派发 pointerdown，
+          不拦住它的话，斜着滑会既缩放又平移（实测 start 漂了 42 根）。 */
+    if (m0.x > L.padL + L.plotW) {
+      st.touchAxis = true;
+      st.down = null; st.panning = null;
+      longPress = { axis: true, y0: t.clientY, started: false };
+      e.preventDefault();
+      return;
+    }
+    st.touchAxis = false;
+
+    /* 画布：挂长按计时器；真按住了才出十字光标 */
+    longPress = {
+      axis: false, armed: true, x0: t.clientX, y0: t.clientY, m0: m0,
+      timer: setTimeout(function () {
+        if (!longPress || !longPress.armed) { return; }
+        longPress.fired = true;
+        beginCrosshair(longPress.m0);
+      }, LONG_PRESS_MS)
     };
-    e.preventDefault();
   }, { passive: false });
 
   cv.addEventListener('touchmove', function (e) {
-    if (e.touches.length !== 2 || !pinch) { return; }
-    /* 关键：阻止浏览器把它当成"缩放整个网页" */
-    e.preventDefault();
+    /* ---------- 双指缩放 ---------- */
+    if (e.touches.length === 2 && pinch) {
+      e.preventDefault();
+      var d = touchDist(e.touches[0], e.touches[1]);
+      if (!d || !pinch.dist0) { return; }
+      /* factor = 初始距离 / 当前距离 -> 张开(<1) = 放大 */
+      var ratio = pinch.dist0 / d;
+      if (Math.abs(ratio - 1) < 0.01) { return; }
+      zoomAt(ratio, touchMid(e.touches[0], e.touches[1]), { anchor: pinch.anchor });
+      return;
+    }
 
-    var d = touchDist(e.touches[0], e.touches[1]);
-    if (!d || !pinch.dist) { return; }
-    /* 手指张开 = 放大 = 根数变少 => factor < 1 */
-    var ratio = pinch.dist / d;
-    /* 2% 死区，防止抖动 */
-    if (Math.abs(ratio - 1) < 0.02) { return; }
+    if (e.touches.length !== 1 || !longPress) { return; }
+    var t = e.touches[0];
 
-    zoomAt(ratio, touchMid(e.touches[0], e.touches[1]), {});
-    /* 每次成功缩放后重置基准，避免累加漂移 */
-    pinch.dist = d;
-    pinch.count = st.count;
+    /* ---------- 价格轴上下滑缩放 ---------- */
+    if (longPress.axis) {
+      e.preventDefault();
+      var dy = t.clientY - longPress.y0;
+      /* 累积到 16px 才动一次，避免抖动 */
+      if (Math.abs(dy) < 16) { return; }
+      var m = evPos(t);
+      /* 往下滑(dy>0) = 缩小；往上(dy<0) = 放大 */
+      zoomAxis(dy > 0 ? 1 : -1, { x: L.padL + L.plotW + 1, y: m.y });
+      longPress.y0 = t.clientY;
+      return;
+    }
+
+    /* ---------- 长按已触发：只移光标，画面固定 ---------- */
+    if (longPress.fired) {
+      e.preventDefault();
+      var mm = evPos(t);
+      var i = Math.round(iAt(mm.x));
+      if (i >= 0 && i < N) { st.lastIdx = i; }
+      st.hover = { i: i, x: mm.x, y: mm.y };
+      draw();
+      return;
+    }
+
+    /* ---------- 还没长按成功：移动超阈值就放弃（那是拖动平移） ---------- */
+    if (longPress.armed) {
+      var dx0 = t.clientX - longPress.x0, dy0 = t.clientY - longPress.y0;
+      if (Math.hypot(dx0, dy0) > LONG_PRESS_MOVE_TOL) {
+        clearLongPressTimer();
+      }
+    }
   }, { passive: false });
 
   cv.addEventListener('touchend', function (e) {
     if (e.touches.length < 2) { pinch = null; }
+    if (e.touches.length === 0) {
+      clearLongPressTimer();
+      /* 松手：取消十字光标、恢复自由画布 */
+      endCrosshair();
+      longPress = null;
+      st.touchAxis = false;
+    }
   }, { passive: true });
 
-  cv.addEventListener('touchcancel', function () { pinch = null; }, { passive: true });
+  cv.addEventListener('touchcancel', function () {
+    pinch = null;
+    clearLongPressTimer();
+    endCrosshair();
+    longPress = null;
+    st.touchAxis = false;
+  }, { passive: true });
 
   cv.addEventListener('pointerdown', function (e) {
     var m = evPos(e);
     if (e.button !== 0) { return; }
+    /* ★ 长按看盘模式：画面冻结，一切绘制/拖拽/平移都不允许，
+       只让十字光标跟随手指（由 touch 处理器更新 st.hover）。
+       必须在所有分支之前返回，否则一次"按住"会顺手画出图元。 */
+    if (st.freeze) { return; }
+    /* ★ 价格轴触摸中：不让 pointer 路径接管平移（否则斜滑会一笔两用）。 */
+    if (st.touchAxis) { return; }
     cv.setPointerCapture(e.pointerId);
     /* 画布上按下时，让浮栏"让路"：
        浮栏的按钮区如果正好压在图元上，指针事件会被它接走，
@@ -3812,6 +3997,16 @@ footer{margin-top:14px;padding-top:10px}
   cv.addEventListener('pointermove', function (e) {
     var m = evPos(e);
     st.mouse = m;
+
+    /* ★ 长按看盘模式：只让光标跟随，不做任何拖拽/平移判定。
+       hover 由 touchmove 更新（触摸时 pointermove 也会来，
+       这里统一处理，桌面鼠标不进入 freeze，行为完全不变）。 */
+    if (st.freeze) {
+      var ifz = Math.round(iAt(m.x));
+      if (ifz >= 0 && ifz < N) { st.lastIdx = ifz; }
+      st.hover = { i: ifz, x: m.x, y: m.y };
+      return;
+    }
 
     /* 次级框内拖动：只改横向窗口（纵向/斜向不响应） */
     if (spState.drag) {
