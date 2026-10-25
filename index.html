@@ -856,6 +856,49 @@ footer{margin-top:14px;padding-top:10px}
   #vk-bar .vk-lab{font-size:12.5px;padding-left:2px}
   /* 页面左右留白再收一点，把宽度让给画布 */
   .wrap{padding:6px 3px 14px}
+
+  /* ===== 图表文字特供版（2026-10-26） =====
+     ★ 需求：图例（开高低收/波动/均线）在 390px 宽画布上放不下，
+       但【不要换行】—— 换行会让图例变三行、压住 K 线，观感很差。
+       改为把图表上的文字整体缩小，让原本一行放不下的内容重新放得下。
+
+     ★ 只改 CSS 变量，不动任何具体规则：
+       图例/页脚/提示条全部用 var(--fs-body)，改这一处就整体生效。
+     ★ PC（>560px）读不到这个块，字号仍是 17px / 15px，逐像素不变。
+
+     ★ 字号按【画布可用宽度】动态算，不是写死一个值（2026-10-26 第二轮）：
+         实测 11px 时"开高低收+波动"整行 367px，而各机型画布宽度不同：
+           390 屏 → 画布 382（图例从 12px 起，可用 374）→ 367 放得下 ✓
+           360 屏 → 画布 352（可用 344）→ 溢出 23px ✗
+           320 屏 → 画布 312（可用 304）→ 溢出 63px ✗
+         所以这里用 clamp() 让字号随视口缩放：
+           vw 下限按 360 屏算：11 × 344/367 ≈ 10.3 → 取 10px 保底
+           上限 11px（390 及以上够用就不必再大，PC 走另一套 17px）
+         clamp(10px, 2.8vw, 11px) 在 360 屏给 10.08px、390 屏给 10.92px、
+         414 屏封顶 11px —— 全部放得下，且不会小到看不清。
+       ★ 320 屏（可用 304）：10px 时 367×10/11 = 334 > 304，仍会溢出。
+         这类极窄机由下面的 max-width:380px 块进一步降到 9px。 */
+  :root{
+    --fs-body:clamp(10px, 2.8vw, 11px);
+    --fs-table:clamp(9px, 2.6vw, 10px);
+  }
+  /* 行内间距同步收紧，给数字留出宽度 */
+  #dc-legend .lg-r,#dc-rsi-legend .lg-r,#dc-macd-legend .lg-r{gap:5px}
+  /* 图例行距也收紧一点，三行均线不会把画布顶部占太多 */
+  #dc-legend,#dc-rsi-legend,#dc-macd-legend{line-height:1.45}
+}
+
+/* ---------- 极窄机（≤340）：再降一档字号 ----------
+   ★ 为什么是 340 而不是 380（2026-10-26 微调）：
+     360 屏本来 10px 就放得下（实测可用 344 > 内容 334），
+     断点定 380 会把它一起压到 9px，字白白变小。
+     只有 320 这类屏才需要 9px。 */
+@media (max-width:340px){
+  :root{
+    --fs-body:9px;
+    --fs-table:8.5px;
+  }
+  #dc-legend .lg-r,#dc-rsi-legend .lg-r,#dc-macd-legend .lg-r{gap:4px}
 }
 /* ---------- 代码框的中文搜索候选 ----------
    输入中文（或代码）时在输入框下方实时列出匹配品种，点选即加载。
@@ -1205,7 +1248,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-10-26 00:16
+生成：2026-10-26 00:54
 </div>
 </footer>
 
@@ -1416,8 +1459,41 @@ footer{margin-top:14px;padding-top:10px}
        字重仍用 400（不加粗）—— 图例的 b 标签也是 font-weight:400，
        两边一致才不会有"一个粗一个细"的割裂感。
        canvas 文字天然比 DOM 发虚，若仍嫌细可把下面的 400 改成 500/600。 */
-  var FIB_LABEL_FONT =
-    '400 17px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+  /* ==================================================================
+     画布字体缩放（2026-10-26）
+     ==================================================================
+     ★ 为什么需要：canvas 里的文字（坐标轴刻度、十字光标时间标签、
+       FIB 档位标签等）全部写死成 px，不吃 CSS 的 --fs-body。
+       手机端把 DOM 图例缩到 11px 后，画布上的字若还是 17/13/12px，
+       两者会明显不协调（图例比坐标轴小一圈）。
+     ★ 做法：所有 canvas 字体统一走 CF()，由 CANVAS_FS 一个系数控制。
+       PC（>560px）CANVAS_FS = 1，字号与改动前逐值相同。
+     ★ 系数随视口宽度自适应，与 CSS 里 --fs-body 的 clamp 保持同一节奏
+       （2026-10-26 第二轮）：
+         390 屏 ≈ 10.92/17 = 0.642
+         360 屏 ≈ 10.08/17 = 0.593
+         320 屏 ≈  9.00/17 = 0.529
+       ★ 用连续函数而不是断点，避免改窗口宽度时字号"跳一下"。
+       ★ PC（>560px）恒为 1，字号与改动前逐值相同。
+     ★ 为什么用 JS 判断而不是 CSS：ctx.font 只能由 JS 设置，
+       CSS 变量传不进来，必须在这里算。
+     ================================================================== */
+  var CANVAS_FS = (function () {
+    if (typeof window === 'undefined') { return 1; }
+    var w = window.innerWidth;
+    if (w > 560) { return 1; }
+    /* 与 CSS 的 clamp(10px, 2.8vw, 11px) 同一公式，再除以设计基准 17 */
+    var fs = Math.min(11, Math.max(9, Math.min(2.8 * w / 100, 11)));
+    return fs / 17;
+  })();
+  var FFAM = '"叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+  /* weight: 400/600 等；size: 设计稿 px（PC 口径） */
+  function CF(weight, size) {
+    var px = Math.max(8, Math.round(size * CANVAS_FS * 10) / 10);
+    return (weight ? weight + ' ' : '') + px + 'px ' + FFAM;
+  }
+
+  var FIB_LABEL_FONT = CF(400, 17);
   function pal(i) { return FIB_PAL[i % FIB_PAL.length]; }
   /* 把任意颜色吸附到四色调色板里最接近的一个（旧存档迁移用） */
   function snapPalette(hex) {
@@ -2152,8 +2228,7 @@ footer{margin-top:14px;padding-top:10px}
             ctx.fillStyle = sigCol; ctx.fill();
           }
           ctx.fillStyle = sigCol;
-          ctx.font = isPrimary ? '600 11px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif'
-                               : '600 10px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+          ctx.font = isPrimary ? CF(600, 11) : CF(600, 10);
           ctx.textAlign = 'center';
           var ly = p.y;
           if (isPrimary) {
@@ -2241,7 +2316,7 @@ footer{margin-top:14px;padding-top:10px}
       ctx.strokeStyle = d.color || '#0f172a'; ctx.fillStyle = ctx.strokeStyle;
       var y = Y(pts[0].p);
       ctx.beginPath(); ctx.moveTo(L.padL, y); ctx.lineTo(L.padL + L.plotW, y); ctx.stroke();
-      ctx.font = '11px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+      ctx.font = CF(400, 11);
       ctx.textAlign = 'left';
       ctx.fillText(fmtP(pts[0].p), L.padL + L.plotW + 5, y + 4);
 
@@ -2341,7 +2416,7 @@ footer{margin-top:14px;padding-top:10px}
 
     } else if (d.type === 'text' && pts.length >= 1) {
       ctx.fillStyle = d.color || '#dc2626';
-      ctx.font = '600 12px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+      ctx.font = CF(600, 12);
       ctx.textAlign = 'left';
       ctx.fillText(d.text || '', X(pts[0].i) + 4, Y(pts[0].p) - 4);
       ctx.beginPath(); ctx.arc(X(pts[0].i), Y(pts[0].p), 2.5, 0, Math.PI * 2); ctx.fill();
@@ -2633,7 +2708,7 @@ footer{margin-top:14px;padding-top:10px}
        否则框太窄时最右边的"收"会被裁掉（实测就是这个现象）。
        用【整段数据的最高/最低价】来估宽（而不是当前那根的价），
        这样鼠标在各根之间移动时框宽不会忽大忽小地抖动。 */
-    var LG_FONT = '600 13px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+    var LG_FONT = CF(600, 13);
     var legendNeed;
     ctx.save();
     ctx.font = LG_FONT;
@@ -2767,7 +2842,7 @@ footer{margin-top:14px;padding-top:10px}
       ctx.rect(rx0, top, rx1 - rx0, bot - top);
       ctx.clip();
       var fs = 13;
-      ctx.font = '600 ' + fs + 'px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+      ctx.font = CF(600, fs);
       ctx.textAlign = 'left';
       var tx = rx0 + 8, ty = top + 18;
       var gap = 10;
@@ -2830,7 +2905,7 @@ footer{margin-top:14px;padding-top:10px}
                    Math.round(rx1 - rx0) - 1, Math.round(bot - top) - 1);
     ctx.setLineDash([]);
     ctx.fillStyle = '#94a3b8';
-    ctx.font = '13px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+    ctx.font = CF(400, 13);
     ctx.textAlign = 'center';
     ctx.fillText('该日无次级数据', (rx0 + rx1) / 2, top + 30);
     ctx.restore();
@@ -2868,7 +2943,7 @@ footer{margin-top:14px;padding-top:10px}
     ctx.strokeRect(Math.round(rx0) + 0.5, Math.round(top) + 0.5,
                    Math.round(rx1 - rx0) - 1, Math.round(bot - top) - 1);
     ctx.fillStyle = spState.loading ? '#2563eb' : '#dc2626';
-    ctx.font = '12px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+    ctx.font = CF(400, 12);
     ctx.textAlign = 'center';
     ctx.fillText(msg, (rx0 + rx1) / 2, top + 30);
     ctx.restore();
@@ -2944,7 +3019,7 @@ footer{margin-top:14px;padding-top:10px}
     /* ---- 只标 K 线根数，放在虚线上方 ---- */
     var bars = iB - iA + 1;
     var txt = bars + ' 根 K线';
-    ctx.font = '600 14px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+    ctx.font = CF(600, 14);
     var tw = ctx.measureText(txt).width;
     var pad = 8, bh2 = 25, bw2 = tw + pad * 2;
     var cx = single ? xa : (xa + xb) / 2;
@@ -3059,7 +3134,7 @@ footer{margin-top:14px;padding-top:10px}
       }
 
       var txt = a.text || ((i1 - i0 + 1) + ' 根');
-      ctx.font = '600 13px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+      ctx.font = CF(600, 13);
       var tw = ctx.measureText(txt).width;
       var pad = 7, bh = 22, bw = tw + pad * 2;
       var cx = (xa + xb) / 2;
@@ -3130,7 +3205,7 @@ footer{margin-top:14px;padding-top:10px}
   /* ---------------- 坐标轴 ---------------- */
   function drawAxis() {
     ctx.save();
-    ctx.font = '11px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+    ctx.font = CF(400, 11);
     ctx.fillStyle = TH.axisText;
     ctx.textAlign = 'left';
     var ax = L.padL + L.plotW + 5;
@@ -3221,7 +3296,7 @@ footer{margin-top:14px;padding-top:10px}
         lastDay = day;
         ctx.save();
         ctx.fillStyle = TH.axisText;
-        ctx.font = '10px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+        ctx.font = CF(400, 10);
         ctx.fillText(day.slice(5), x, yDay);
         ctx.restore();
       }
@@ -3248,7 +3323,7 @@ footer{margin-top:14px;padding-top:10px}
     var txt = hoverTimeLabel(i);
     if (txt) {
       ctx.save();
-      ctx.font = '600 12px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+      ctx.font = CF(600, 12);
       var tw = ctx.measureText(txt).width;
       var bx = clamp(x - tw / 2 - 9, L.padL, L.padL + L.plotW - tw - 18);
       var by = L.H - L.padB + 8;
@@ -3281,7 +3356,7 @@ footer{margin-top:14px;padding-top:10px}
       if (isFinite(pv)) {
         ctx.save();
         var pTxt = fmtP(pv);
-        ctx.font = '600 12px "叶立群几何体测试版","叶立群几何体",ui-sans-serif,system-ui,sans-serif';
+        ctx.font = CF(600, 12);
         var ptw = ctx.measureText(pTxt).width;
         var padX = 7;
         var boxW = ptw + padX * 2;
@@ -3423,9 +3498,8 @@ footer{margin-top:14px;padding-top:10px}
         if (it.kind === 'date') {
           row += '<b class="lg-d">' + col('d')[i] + '</b>';
         } else if (it.kind === 'chg') {
-          /* ★★ 窄屏才把波动单独放一行（2026-10-26 用户要求）。
-             桌面整行放得下，强行断行反而让图例变高、压住 K 线。 */
-          if (L.plotW < 420) { flush(); }
+          /* ★ 波动项不再单独断行（2026-10-26 撤销）：
+             换行方案观感差，改为窄屏只缩字号（见 report_css.py 的 @media）。 */
           /* ★★ 涨跌：先给【绝对点数】，再给百分比（2026-10-20 用户要求）。
              原来的写法只有 `-2.90%`，看不出实际涨跌了多少 ——
              截图里 BTC 只显示 `+0.01%`，而真实变动是 +6.2。
@@ -3460,13 +3534,6 @@ footer{margin-top:14px;padding-top:10px}
           var v = (it.col === 'o') ? openAt(i) : arr[i];
           row += '<span>' + it.label + '</span><b>' +
                  _fmt(v, it.digits === undefined ? 2 : it.digits) + '</b>';
-          /* ★★ 窄屏时每两项断一次（2026-10-26 用户要求）。
-             ★ 为什么按画布宽度而不是 window 宽度判断：图例是叠在【画布】上的，
-               真正决定"放不放得下"的是画布宽度（padL 左侧还有 48px 让给工具栏）。
-             ★ 阈值 420：手机 390 画布约 386、360 约 346 都要断；
-               PC 1366 画布 1337、1920 画布 1891 都远超阈值，保持单行 ——
-               桌面观感完全不变。 */
-          if (L.plotW < 420 && (it.col === 'h' || it.col === 'c')) { flush(); }
         }
       });
       flush();
@@ -3533,11 +3600,19 @@ footer{margin-top:14px;padding-top:10px}
       h.innerHTML = s;
     });
 
-    /* 贴到各自面板的左上角（面板几何是动态的，所以每次重绘都定位一次） */
+    /* 贴到各自面板的左上角（面板几何是动态的，所以每次重绘都定位一次）
+       ★★ 窄屏时图例从画布最左边起（2026-10-26）：
+          原来固定 padL+10 = 58px，390 屏可用宽度只剩 324px，
+          而"开高低收+波动"需要 362px —— 缩到 9px 字号都放不下。
+          窄屏改成 left:8px 后可用宽度 374px，11px 就能放下，
+          不必把字缩到看不清。
+       ★ 为什么桌面不改：桌面上图例紧贴 K 线区左沿（padL+10）是视觉对齐习惯，
+         挪到 8px 会压到左侧竖排工具栏，反而更糟。 */
+    var narrow = (L.plotW < 420);
     PANEL_SPECS.forEach(function (p, k) {
       var h = LEG_HOST[p.id];
       if (!h) { return; }
-      h.style.left = (L.padL + 10) + 'px';
+      h.style.left = (narrow ? 8 : (L.padL + 10)) + 'px';
       h.style.top = (L.box[p.id].t + (k === 0 ? 7 : 5)) + 'px';
     });
     if (tip) { tip.style.display = 'none'; }
