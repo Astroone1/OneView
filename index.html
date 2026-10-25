@@ -1205,7 +1205,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-10-25 22:52
+生成：2026-10-26 00:16
 </div>
 </footer>
 
@@ -3423,6 +3423,9 @@ footer{margin-top:14px;padding-top:10px}
         if (it.kind === 'date') {
           row += '<b class="lg-d">' + col('d')[i] + '</b>';
         } else if (it.kind === 'chg') {
+          /* ★★ 窄屏才把波动单独放一行（2026-10-26 用户要求）。
+             桌面整行放得下，强行断行反而让图例变高、压住 K 线。 */
+          if (L.plotW < 420) { flush(); }
           /* ★★ 涨跌：先给【绝对点数】，再给百分比（2026-10-20 用户要求）。
              原来的写法只有 `-2.90%`，看不出实际涨跌了多少 ——
              截图里 BTC 只显示 `+0.01%`，而真实变动是 +6.2。
@@ -3444,9 +3447,11 @@ footer{margin-top:14px;padding-top:10px}
               dg = LEGEND_SPEC[li].digits; break;
             }
           }
-          row += '<b>' +
+          /* ★ 加「波动」标签（2026-10-26）：单独一行后没有前缀会看不出这行是什么，
+             与上面的「开 高 低 收」并列时尤其需要一个名字。 */
+          row += '<span>波动</span><b>' +
                  (dlt >= 0 ? '+' : '') + _fmt(dlt, dg) +
-                 ' (' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%)</b>';
+                 '</b><b>' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</b>';
         } else {
           var arr = col(it.col);
           /* 开盘价这一项走 openAt()：与蜡烛实际画出来的形状保持一致。
@@ -3455,6 +3460,13 @@ footer{margin-top:14px;padding-top:10px}
           var v = (it.col === 'o') ? openAt(i) : arr[i];
           row += '<span>' + it.label + '</span><b>' +
                  _fmt(v, it.digits === undefined ? 2 : it.digits) + '</b>';
+          /* ★★ 窄屏时每两项断一次（2026-10-26 用户要求）。
+             ★ 为什么按画布宽度而不是 window 宽度判断：图例是叠在【画布】上的，
+               真正决定"放不放得下"的是画布宽度（padL 左侧还有 48px 让给工具栏）。
+             ★ 阈值 420：手机 390 画布约 386、360 约 346 都要断；
+               PC 1366 画布 1337、1920 画布 1891 都远超阈值，保持单行 ——
+               桌面观感完全不变。 */
+          if (L.plotW < 420 && (it.col === 'h' || it.col === 'c')) { flush(); }
         }
       });
       flush();
