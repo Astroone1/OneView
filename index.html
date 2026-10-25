@@ -195,7 +195,9 @@ footer{margin-top:50px;padding-top:18px;border-top:1px solid #e2e8f0;color:var(-
  flex-direction:column;gap:2px;background:rgba(255,255,255,.94);
  border:1px solid #e2e8f0;border-radius:9px;padding:3px;
  box-shadow:0 2px 8px rgba(15,23,42,.08);
- backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+ backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+ /* ★ 按钮区不参与画布手势：允许点击与滚动，禁止双击缩放（否则连点两下会放大整页） */
+ touch-action:manipulation}
 .dc-tool{width:30px;height:30px;border:1px solid transparent;background:transparent;
  color:var(--ink);border-radius:6px;cursor:pointer;display:flex;align-items:center;
  justify-content:center;padding:0;transition:all .12s}
@@ -231,13 +233,21 @@ footer{margin-top:50px;padding-top:18px;border-top:1px solid #e2e8f0;color:var(-
  background:#0f172a;color:#fff;font-size:var(--fs-body);font-weight:400;padding:4px 8px;
  border-radius:6px;white-space:nowrap;pointer-events:none;z-index:30}
 #dc-wrap{position:relative;width:100%;height:620px;outline:none;border-radius:8px;overflow:hidden}
+/* ★★ touch-action:none —— 手机端手势归图表（2026-10-25）
+   不加这一条，浏览器会把【单指拖动】当成滚动页面、【双指张合】当成缩放整页，
+   画布上的 pointer 事件在触摸设备上根本轮不到我们处理（实测：
+   在 iPhone 视口下拖动画布 = 拖动整个网页，双指 = 页面放大）。
+   加在 wrap 与 canvas 两层，确保工具栏/浮层覆盖区之外的所有画布区域都生效。
+   ⚠️ 代价：手指在画布内无法滚动页面，要从画布外（顶栏/图表下方）滑。 */
+#dc-wrap,#dc-canvas{touch-action:none;-ms-touch-action:none}
 #dc-canvas{display:block;cursor:grab;border-radius:8px}
 /* TradingView 风格的 A（自动居中）按钮 */
 #dc-autofit{position:absolute;right:14px;bottom:14px;width:34px;height:34px;
  border-radius:8px;background:#fff;border:1px solid #d7dfe9;color:var(--ink);
  font-size:var(--fs-body);font-weight:400;cursor:pointer;display:flex;align-items:center;
  justify-content:center;box-shadow:0 2px 8px rgba(15,23,42,.13);z-index:15;
- font-family:inherit;transition:all .14s;padding:0}
+ font-family:inherit;transition:all .14s;padding:0;
+ touch-action:manipulation}
 #dc-autofit:hover{background:#f1f5f9;border-color:var(--ink)}
 #dc-autofit.on{background:#2563eb;color:#fff;border-color:#2563eb}
 #dc-autofit[title]:hover::after{content:attr(title);position:absolute;right:42px;
@@ -1170,7 +1180,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-10-24 18:17
+生成：2026-10-25 22:24
 </div>
 </footer>
 
@@ -3502,32 +3512,31 @@ footer{margin-top:14px;padding-top:10px}
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
-  cv.addEventListener('wheel', function (e) {
-    e.preventDefault();
-    var m = evPos(e);
+  /* ==================================================================
+     缩放原语：滚轮与双指共用（2026-10-25 抽出）
+     ==================================================================
+     ★ 为什么抽出来：手机端双指缩放必须与桌面滚轮【完全同一套口径】，
+       否则同一个手势在两种设备上得到不同的锚点与范围。
+       factor > 1 = 缩小（看得更少），< 1 = 放大。
+
+     三分支与滚轮语义一一对应：
+       axis=true  在价格轴上缩放价格范围（主图改 lock，副图改 z）
+       lockRatio  Ctrl/Cmd 那档：改根数的同时按同比例缩价格，防止变形
+       默认       只改时间轴根数，以锚点那根 K 线为中心
+     ================================================================== */
+  function zoomAt(factor, m, opts) {
+    opts = opts || {};
+    if (!isFinite(factor) || factor === 1) { return; }
     var onAxis = m.x > L.padL + L.plotW;
-    /* 滚轮落在哪个面板的纵向范围内 */
     var hoverPanel = panelAtY(m.y);
 
-    /* 滚轮只对主图负责 —— 次级框内不单独缩放。
-       框内 5m 的疏密跟随主图缩放（见 drawSubPath 的 spBw），
-       所以滚轮在框内也走下面的"主图横向缩放"分支。 */
-
-    /* Ctrl/Cmd + 滚轮 要【优先】判断 —— 它应当在画布任何位置都生效，
-       包括鼠标已经移到右侧价格轴上的时候。 */
-    if (e.ctrlKey || e.metaKey) {
-      /* 锁定缩放比例（TradingView 的 Lock price to bar ratio）。
-         原理：图形是否"变形"取决于
-               比例 = 每根 K 线的像素宽 × 每像素代表的价格
-         普通滚轮只改时间轴（K 线根数），纵向走自动适配 -> 蜡烛被压扁或拉长。
-         这里在改根数的同时，把价格范围按【同一比例】缩放，让上面这个乘积不变，
-         于是蜡烛的长宽比固定，图形不变形。 */
+    if (opts.lockRatio) {
       var c0 = st.count;
-      var c1 = Math.round(clamp(c0 * (e.deltaY > 0 ? 1.18 : 1 / 1.18), 20, N));
+      var c1 = Math.round(clamp(c0 * factor, 20, N));
       if (c1 !== c0) {
-        var k = c1 / c0;                 /* 根数变多 => 每根更窄 */
+        var k = c1 / c0;
         var baseR = st.priceLock || autoPriceRange();
-        var anchorR = pAt(m.y);          /* 以光标处价格为锚，缩放不跑偏 */
+        var anchorR = pAt(m.y);
         setLock({
           lo: anchorR + (baseR.lo - anchorR) * k,
           hi: anchorR + (baseR.hi - anchorR) * k
@@ -3542,34 +3551,106 @@ footer{margin-top:14px;padding-top:10px}
     }
 
     if (onAxis && hoverPanel) {
-      /* 在某个面板的价格轴上滚 = 缩放该面板的【数据范围】（面板高度不变）
-         向上滚（deltaY<0）= 放大 = 范围变窄 */
-      var zoomIn = e.deltaY < 0;
+      var zoomIn = factor < 1;
       var f = zoomIn ? 1.12 : 1 / 1.12;
       if (hoverPanel === PRIMARY) {
-        /* 主图：以光标处价格为锚缩放价格范围 */
-        var base = st.priceLock || autoPriceRange();
-        var anchor = pAt(m.y);
-        var fp = zoomIn ? 1 / 1.12 : 1.12;      /* <1 收窄 = 放大 */
+        var base2 = st.priceLock || autoPriceRange();
+        var anchor2 = pAt(m.y);
+        var fp = zoomIn ? 1 / 1.12 : 1.12;
         setLock({
-          lo: anchor + (base.lo - anchor) * fp,
-          hi: anchor + (base.hi - anchor) * fp
+          lo: anchor2 + (base2.lo - anchor2) * fp,
+          hi: anchor2 + (base2.hi - anchor2) * fp
         });
       } else {
-        /* 副面板：z 越大范围越窄 = 放大 */
         st.z[hoverPanel] = clamp((st.z[hoverPanel] || 1) * f, 0.25, 12);
       }
       draw();
       return;
     }
-    /* 横向缩放（时间轴）—— 以【光标所在的那根 K 线】为锚 */
+
     var iCursor = iAt(m.x);
     var frac = clamp((m.x - L.padL) / L.plotW, 0, 1);
-    var nc = Math.round(clamp(st.count * (e.deltaY > 0 ? 1.18 : 1 / 1.18), 20, N));
+    var nc = Math.round(clamp(st.count * factor, 20, N));
     st.count = nc;
     st.start = iCursor - frac * nc;
     clampView(); draw();
+  }
+
+  cv.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var m = evPos(e);
+    /* 滚轮只对主图负责 —— 次级框内不单独缩放。
+       框内 5m 的疏密跟随主图缩放（见 drawSubPath 的 spBw），
+       所以滚轮在框内也走下面的"主图横向缩放"分支。 */
+    zoomAt(e.deltaY > 0 ? 1.18 : 1 / 1.18, m,
+           { lockRatio: !!(e.ctrlKey || e.metaKey) });
   }, { passive: false });
+
+  /* ==================================================================
+     手机端双指缩放（2026-10-25 新增）
+     ==================================================================
+     ★ 为什么不能用 pointer 事件做双指：pointerdown 只报"每根手指"，
+       要自己维护多指集合、判断哪两根是正在缩放的 —— 而 touch 事件
+       天然按 e.touches 给出全部手指，语义更直接。
+
+     ★ 与 wheel 共用 zoomAt()：锚点取【两指中点】下的那根 K 线，
+       和桌面"以鼠标位置为锚"完全同构，所以同一手势两种设备结果一致。
+
+     ★ 阈值：两指距离变化超过 2% 才触发一次，避免手指微抖导致
+       根数来回跳（每次 zoomAt 都会 clampView + 重绘，太频繁会卡）。
+
+     ★ touch-action:none（见 report_css.py）是前提：
+       不加的话浏览器先把触摸当"缩放整页"消费掉，这里一个事件都收不到。
+     ================================================================== */
+  var pinch = null;            /* { dist, count, mid } 上一次的双指状态 */
+
+  function touchMid(t1, t2) {
+    var r = cv.getBoundingClientRect();
+    return {
+      x: ((t1.clientX + t2.clientX) / 2) - r.left,
+      y: ((t1.clientY + t2.clientY) / 2) - r.top
+    };
+  }
+  function touchDist(t1, t2) {
+    var dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  cv.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 2) { pinch = null; return; }
+    /* 双指落下：取消单指可能已开始的平移，否则会边缩边漂 */
+    st.down = null; st.panning = null;
+    pinch = {
+      dist: touchDist(e.touches[0], e.touches[1]),
+      count: st.count,
+      mid: touchMid(e.touches[0], e.touches[1])
+    };
+    e.preventDefault();
+  }, { passive: false });
+
+  cv.addEventListener('touchmove', function (e) {
+    if (e.touches.length !== 2 || !pinch) { return; }
+    /* 关键：阻止浏览器把它当成"缩放整个网页" */
+    e.preventDefault();
+
+    var d = touchDist(e.touches[0], e.touches[1]);
+    if (!d || !pinch.dist) { return; }
+    /* 手指张开 = 放大 = 根数变少 => factor < 1 */
+    var ratio = pinch.dist / d;
+    /* 2% 死区，防止抖动 */
+    if (Math.abs(ratio - 1) < 0.02) { return; }
+
+    zoomAt(ratio, touchMid(e.touches[0], e.touches[1]), {});
+    /* 每次成功缩放后重置基准，避免累加漂移 */
+    pinch.dist = d;
+    pinch.count = st.count;
+  }, { passive: false });
+
+  cv.addEventListener('touchend', function (e) {
+    if (e.touches.length < 2) { pinch = null; }
+  }, { passive: true });
+
+  cv.addEventListener('touchcancel', function () { pinch = null; }, { passive: true });
 
   cv.addEventListener('pointerdown', function (e) {
     var m = evPos(e);
