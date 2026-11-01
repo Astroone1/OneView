@@ -315,35 +315,74 @@ footer{margin-top:50px;padding-top:18px;border-top:1px solid #e2e8f0;color:var(-
 /* 数值段：不接收事件 —— 移到数字上不弹设置 */
 .lg-ov b{pointer-events:none}
 .lg-ov.off{opacity:.45}
-/* 设置按钮：平时隐藏（display:none 不占位） */
-/* ★ 眼睛按钮（2026-10-18 第三轮，改内联 SVG）。
-   ★ 为什么不再用 font-size：图标现在是 SVG，字号对它无效；
-     之前 emoji 由字体渲染，开/关两个字形大小天然不一致
-     （关状态那个 🚫 明显更大、还是红圈）。
-     现在两个 SVG 共用 16x16 viewBox，尺寸与视觉重量完全一致。
-   ★ line-height:0 + display:flex 是为了消除 inline 元素的基线空隙 ——
-     否则按钮比同排文字高几像素，四个按钮的上下沿会参差。
-   ★ 颜色统一 #94a3b8（淡灰），隐藏态也不变 —— 用户明确要求"淡灰色"。 */
-.lg-eye{display:none;border:0;background:none;padding:3px;margin:0;
- cursor:pointer;line-height:0;color:#94a3b8;
- flex:0 0 auto;align-items:center;justify-content:center;
- width:22px;height:22px;border-radius:4px;
- transition:background .12s,color .12s}
-/* SVG 自身去掉 inline 间隙 */
-.lg-eye svg{display:block}
-/* 显示态：淡灰；悬停略深 */
-.lg-eye:hover{background:rgba(37,99,235,.10);color:#475569}
-/* 隐藏态：同样的淡灰，只是图标换成闭眼 —— 不再用刺眼的红 */
-.lg-ov.off .lg-eye{color:#94a3b8}
+/* ★★ 均线行按钮（2026-11-01）：眼睛（显隐）+ 齿轮（设置）。
+   ★ 出现方式【沿用眼睛原有行为，不改】：两个按钮都默认不显示，
+     鼠标移到「名称 + 按钮」这一整块热区上才出现。
+     图例是叠在 K 线上的一层文字，两个图标常显会让左上角一直挂着方块。
+   ★ 为什么用 display:none 而不是 opacity:0：opacity 仍占位，
+     会让名称与数字之间多出一段空隙；display:none 才与
+     "名称后面紧跟按钮"的观感一致。
+   ★ 已关闭（.off）的那条：眼睛常显，让人知道怎么重新打开 —— 原有行为。
+   ★ 眼睛与齿轮共用尺寸/内边距/16x16 图标，视觉重量一致，不会一高一低。
+   ★ line-height:0 + inline-flex 是消除 inline 元素基线空隙；
+     SVG 自身也 display:block，否则同排文字的上下沿会参差。 */
+.lg-eye,.lg-cog{display:none;border:0;background:none;padding:3px;margin:0;
+  cursor:pointer;line-height:0;color:#94a3b8;
+  flex:0 0 auto;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:4px;
+  transition:background .12s,color .12s}
+.lg-eye svg,.lg-cog svg{display:block}
+.lg-eye:hover,.lg-cog:hover{background:rgba(37,99,235,.10);color:#475569}
+/* ★ 关键：悬停【整个热区容器】就显示两个按钮 —— 包括鼠标已经在按钮上时，
+   因为按钮是容器的一部分，容器仍是 hover 状态，不会出现"刚出现就消失"。 */
+.lg-ov .lg-hot:hover .lg-eye,
+.lg-ov .lg-hot:hover .lg-cog{display:inline-flex}
+/* 已关闭的那条：眼睛常显，让人知道怎么重新打开 */
+.lg-ov.off .lg-eye{display:inline-flex;color:#94a3b8}
 .lg-ov.off .lg-eye:hover{color:#475569}
-/* 悬停按钮本身：淡底 + 变色，明确"这里能点" */
-.lg-eye:hover{background:rgba(37,99,235,.10)}
-/* ★ 关键：悬停【整个热区容器】就显示按钮 —— 包括鼠标已经在按钮上时，
-   因为按钮是容器的一部分，容器仍是 hover 状态。 */
-.lg-ov .lg-hot:hover .lg-eye{display:inline-block}
-.lg-ov .lg-hot:hover .lg-eye{display:inline-block}
-/* 已关闭的那条：按钮常显，让人知道怎么重新打开 */
-.lg-ov.off .lg-eye{display:inline-block;color:#94a3b8}
+/* 设置浮层正打开的那条：齿轮常显并保持"按下"态，一眼看出在改哪条 */
+.lg-cog.on{display:inline-flex;background:rgba(37,99,235,.10);color:#2563eb}
+.lg-cog.on:hover{color:#2563eb}
+/* ★ 眼睛图标为什么用内联 SVG（2026-10-18 第三轮，做法沿用至今）：
+     此前 emoji 由系统字体渲染，开/关两个字形大小天然不一致
+     （关状态那个「禁行」明显更大、还是红圈），字号也管不住它。
+     现在两个 SVG 共用 16x16 viewBox，尺寸与视觉重量完全一致。 */
+/* ---------- 均线设置浮层（点图例齿轮打开，2026-11-01） ----------
+   ★ 为什么单独做一个固定宿主（#dc-wrap 里的绝对定位层），
+     而不是塞进图例行里：
+     图例的 innerHTML 每次 draw 都整块重建（鼠标移动 = 每帧一次），
+     浮层若在图例内部，输入框会在打字途中被销毁、焦点丢失。
+     放在外面的独立节点不受重绘影响，只需在重绘后把位置对齐齿轮。
+   ★ 内容只有两项（按用户要求）：类型（EMA / MA）+ 长度。
+     不做删除按钮 —— 线的增减不属于这个入口。 */
+.dc-ovpop{position:absolute;left:0;top:0;display:none;z-index:26;width:196px;
+  box-sizing:border-box;background:#fff;border:1px solid #d7dfe9;border-radius:10px;
+  padding:9px 10px 10px;box-shadow:0 8px 24px rgba(15,23,42,.16);
+  font-size:var(--fs-body);color:var(--ink);line-height:1.5}
+.dc-ovpop.show{display:block}
+.dc-ovpop-h{display:flex;align-items:center;justify-content:space-between;
+  color:var(--ink-title);margin-bottom:8px}
+.dc-ovpop-x{border:0;background:none;color:var(--ink);cursor:pointer;
+  font-size:15px;line-height:1;padding:0 2px;font-family:inherit}
+.dc-ovpop-x:hover{color:var(--ink-title)}
+.dc-ovpop-r{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+/* ★ 标签宽度固定 + white-space:nowrap（2026-11-01 修）。
+   截图里「类型」「长度」被挤成竖排两行：flex 子项默认可收缩到 min-content，
+   「长度」两字就断成了上下。加 nowrap 并给足宽度，控件左边缘仍对齐，
+   看着像一张两行的表。 */
+.dc-ovpop-r > span{flex:0 0 32px;color:var(--ink);white-space:nowrap}
+.dc-ovpop-sel,.dc-ovpop-in{flex:1;min-width:0;border:1px solid #d7dfe9;border-radius:7px;
+  padding:4px 7px;font-family:inherit;font-size:var(--fs-body);color:var(--ink);
+  background:#fff;outline:none}
+.dc-ovpop-sel:focus,.dc-ovpop-in:focus{border-color:#2563eb;
+  box-shadow:0 0 0 2px rgba(37,99,235,.12)}
+.dc-ovpop-f{display:flex;gap:7px;justify-content:flex-end;margin-top:2px}
+.dc-ovpop-btn{border:1px solid #d7dfe9;background:#fff;color:var(--ink);
+  font-family:inherit;font-size:var(--fs-body);padding:4px 11px;
+  border-radius:7px;cursor:pointer}
+.dc-ovpop-btn:hover{background:#f1f5f9}
+.dc-ovpop-btn.primary{background:#2563eb;border-color:#2563eb;color:#fff}
+.dc-ovpop-btn.primary:hover{background:#1d4ed8}
 #dc-legend b.lg-ema20{color:#111827}
 #dc-legend b.lg-ma10{color:#b8a24a}
 #dc-legend b.up,#dc-rsi-legend b.up,#dc-macd-legend b.up{color:#15803d}
@@ -1070,6 +1109,31 @@ footer{margin-top:14px;padding-top:10px}
         </svg></button>
     </div>
     <div id="dc-tip"></div>
+    <!-- 均线设置浮层（点图例里的齿轮打开）。位置由引擎按齿轮坐标设置。
+         ★ 必须放在 #dc-legend 之外：图例每帧重建 innerHTML，
+           浮层若在内部，输入框会在打字途中被销毁。 -->
+    <div id="dc-ovpop" class="dc-ovpop">
+      <div class="dc-ovpop-h">
+        <span id="dc-ovpop-title">均线设置</span>
+        <button type="button" class="dc-ovpop-x" id="dc-ovpop-x" title="关闭">×</button>
+      </div>
+      <div class="dc-ovpop-r">
+        <span>类型</span>
+        <select class="dc-ovpop-sel" id="dc-ovpop-type">
+          <option value="ma">MA</option>
+          <option value="ema">EMA</option>
+        </select>
+      </div>
+      <div class="dc-ovpop-r">
+        <span>长度</span>
+        <input class="dc-ovpop-in" id="dc-ovpop-len" type="number"
+               min="2" max="500" step="1" inputmode="numeric" placeholder="20">
+      </div>
+      <div class="dc-ovpop-f">
+        <button type="button" class="dc-ovpop-btn" id="dc-ovpop-no">取消</button>
+        <button type="button" class="dc-ovpop-btn primary" id="dc-ovpop-ok">确定</button>
+      </div>
+    </div>
     <div id="dc-legend"></div>
     <div id="dc-rsi-legend"></div>
     <div id="dc-macd-legend"></div>
@@ -1355,20 +1419,69 @@ footer{margin-top:14px;padding-top:10px}
     + '<path d="M2.5 2.5l11 11"/>'
     + '</svg>';
 
-  /* ★ 叠加线显隐开关的点击绑定（2026-10-18）。
+  /* ★★ 设置齿轮（2026-11-01，第二轮按用户选型重画）。
+     ★ 上一版为什么不行：第一版是"中心圆 + 8 根放射短线"，
+       用户一眼指出「像太阳」—— 那不是齿轮，是亮度图标。
+       区别在【有没有齿形轮廓】：放射线是独立线段、外围没有闭合轮廓，
+       无论粗细怎么调都读不成齿轮。
+       这一版用极坐标真算了 6 齿的闭合轮廓（齿根 4.9 / 齿顶 6.6），
+       再配中心孔，缩到 16px 仍是齿轮。
+     ★ 为什么是 6 齿（用户选定「6 齿 柔和」）：
+       8 齿在 16px 下齿距太密，糊成一圈花边；6 齿齿距够宽，
+       缩到 16px 还能数出齿。这与第一版注释里"6 齿像太阳"的猜测相反 ——
+       猜错的是"有没有轮廓"，不是齿数。
+     ★ "柔和"靠两处：齿顶半宽取 0.17（齿不尖锐）、
+       stroke-linejoin:round（转角圆润）。
+     ★ 与眼睛同一套几何：16x16 viewBox、stroke-width 1.3、currentColor，
+       两个按钮并排时视觉重量一致，不会一重一轻。
+     ★ 用描边而不是实心：实心在 16px 会糊成墨点，描边仍能看出齿。
+     ★ 路径怎么来的（要改齿数/齿深时照这个算，不要手调坐标）：
+         圆心 (8,8)；对每个齿 k 取角度 a = k·360°/N，
+         依次连 齿根(a-sr) -> 齿顶(a-sp) -> 齿顶(a+sp) -> 齿根(a+sr)，
+         相邻齿之间用直线收边。
+         N=6, R=6.6, r=4.9, sp=0.17, sr=0.34
+       齿顶 6.6 + 半个描边 0.65 = 7.25，画布半径 8，仍有余量不贴边。 */
+  var ICON_COG =
+    '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" '
+    + 'stroke="currentColor" stroke-width="1.3" stroke-linecap="round" '
+    + 'stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M6.292 3.407L6.831 1.504L9.169 1.504L9.708 3.407'
+    + 'L11.123 4.224L13.041 3.74L14.21 5.764L12.831 7.183'
+    + 'L12.831 8.817L14.21 10.236L13.041 12.26L11.123 11.776'
+    + 'L9.708 12.593L9.169 14.496L6.831 14.496L6.292 12.593'
+    + 'L4.877 11.776L2.959 12.26L1.79 10.236L3.169 8.817'
+    + 'L3.169 7.183L1.79 5.764L2.959 3.74L4.877 4.224Z"/>'
+    + '<circle cx="8" cy="8" r="2.1"/>'
+    + '</svg>';
+
+  /* ★ 叠加线按钮的点击绑定（2026-10-18 建眼睛，2026-11-01 加齿轮）。
      ★ 必须在 bindData() 填充完 LEG_HOST 之后调用 ——
        早先写成 IIFE，执行时 LEG_HOST 还是空的，一个都没绑上，
        表现为"点眼睛没反应"（实测踩过）。
      用事件委托：图例每次重绘都重建 innerHTML，
-     直接给按钮绑会失效；委托绑在容器上，只绑一次长期有效。 */
+     直接给按钮绑会失效；委托绑在容器上，只绑一次长期有效。
+     ★ 眼睛与齿轮共用这一处委托：两个按钮的判定顺序很重要 ——
+       齿轮先判，否则将来若有人把齿轮套进 .lg-eye 结构里会被眼睛抢走。 */
   function bindOverlayEye() {
     Object.keys(LEG_HOST).forEach(function (pid) {
       var host = LEG_HOST[pid];
       if (!host || host.__eyeBound) { return; }
       host.__eyeBound = true;
       host.addEventListener('click', function (e) {
-        var btn = e.target && e.target.closest
-          ? e.target.closest('.lg-eye') : null;
+        var t = (e.target && e.target.closest) ? e.target : null;
+        if (!t) { return; }
+
+        /* ---- 齿轮：打开该条均线的设置浮层 ---- */
+        var cog = t.closest('.lg-cog');
+        if (cog) {
+          e.preventDefault();
+          e.stopPropagation();
+          openOvPop(cog.getAttribute('data-ov'), cog);
+          return;
+        }
+
+        /* ---- 眼睛：切换这条线的显隐 ---- */
+        var btn = t.closest('.lg-eye');
         if (!btn) { return; }
         e.preventDefault();
         e.stopPropagation();            /* 别让点击穿透到画布（会触发拖动） */
@@ -1389,6 +1502,274 @@ footer{margin-top:14px;padding-top:10px}
         }
       });
     });
+  }
+
+  /* ==================================================================
+     均线设置浮层（2026-11-01）
+     ==================================================================
+     ★ 需求（用户原话）：三条均线的眼睛旁边各挂一个齿轮，设置里只做两件事
+       —— 下拉选 EMA / MA，长度手动输入。不提供删除按钮。
+
+     ★ 为什么浮层是【独立节点】而不是图例行里的一段 HTML：
+       图例的 innerHTML 每次 draw() 都整块重建（鼠标一移动就是一帧），
+       浮层若在图例内部，用户打字打到一半输入框就会被销毁、焦点丢失。
+       所以浮层放在 #dc-wrap 下的独立节点里，重绘后只做一件事：把位置对齐齿轮。
+
+     ★ 为什么改完参数要【重算整条线】而不是只换个标签：
+       长度变了，线的走向就完全不同。payload.series 里的数组是启动时算好的，
+       必须按新参数重算并写回去，否则图例写着 EMA 50、画出来的还是 EMA 20。
+
+     ★ 参数存在哪：只存本机（divchart:maCfg），用 __VIEWER_ON_MACFG__ 落盘。
+       理由与均线显隐一致 —— 它是"这套图怎么显示"的模板资产，
+       换台机器分辨率/习惯不同，照搬别人的均线参数反而别扭。 */
+  var ovPop = null;            /* 浮层根节点（懒取，避免引擎启动时 DOM 还没就绪） */
+  var ovPopCol = null;         /* 当前正在编辑哪一列 */
+
+  function ovPopEl() {
+    if (!ovPop) { ovPop = document.getElementById('dc-ovpop'); }
+    return ovPop;
+  }
+
+  /* 取某条叠加线的 spec（主图 overlays 里按列名找） */
+  function overlayOf(colName) {
+    var p = specOf(PRIMARY);
+    var list = p.overlays || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].col === colName) { return list[i]; }
+    }
+    return null;
+  }
+
+  /* 齿轮标签：把齿轮定位到浮层上方居中。
+     ★ 用 getBoundingClientRect 换算成 #dc-wrap 内的相对坐标 ——
+       图例宿主自己是绝对定位，直接用 offsetLeft 会叠加多层坐标系，容易错位。 */
+  function placeOvPop(cog) {
+    var el = ovPopEl();
+    var w = wrap.getBoundingClientRect();
+    if (!el || !cog) { return; }
+    var r = cog.getBoundingClientRect();
+    var pw = el.offsetWidth || 186;
+    var left = r.left - w.left + r.width / 2 - pw / 2;
+    /* 贴边时夹住，别让浮层跑出画布外 */
+    left = clamp(left, 4, Math.max(4, w.width - pw - 4));
+    var top = r.bottom - w.top + 4;
+    /* 下方空间不够就翻到齿轮上方 */
+    if (top + el.offsetHeight > w.height - 4) {
+      top = Math.max(4, r.top - w.top - el.offsetHeight - 4);
+    }
+    el.style.left = Math.round(left) + 'px';
+    el.style.top = Math.round(top) + 'px';
+  }
+
+  /* 打开浮层：回填当前这条线的类型与长度 */
+  function openOvPop(colName, cog) {
+    var el = ovPopEl();
+    var ov = overlayOf(colName);
+    if (!el || !ov) { return; }
+    ovPopCol = colName;
+    var tEl = document.getElementById('dc-ovpop-type');
+    var nEl = document.getElementById('dc-ovpop-len');
+    var tiEl = document.getElementById('dc-ovpop-title');
+    if (tEl) { tEl.value = (ov.type === 'ema') ? 'ema' : 'ma'; }
+    if (nEl) { nEl.value = String(ov.n || 20); }
+    if (tiEl) { tiEl.textContent = '均线设置'; }
+    el.classList.add('show');
+    /* 标记"正在改哪条"，让齿轮保持按下态 */
+    document.querySelectorAll('.lg-cog.on').forEach(function (b) {
+      b.classList.remove('on');
+    });
+    if (cog) { cog.classList.add('on'); }
+    placeOvPop(cog);
+    /* 聚焦长度框并全选：绝大多数改参数都是改这个数，直接就能敲 */
+    if (nEl) {
+      setTimeout(function () { try { nEl.focus(); nEl.select(); } catch (e) { } }, 0);
+    }
+  }
+
+  function closeOvPop() {
+    var el = ovPopEl();
+    if (el) { el.classList.remove('show'); }
+    ovPopCol = null;
+    document.querySelectorAll('.lg-cog.on').forEach(function (b) {
+      b.classList.remove('on');
+    });
+  }
+
+  /* 应用参数：重算数组 + 改标签 + 重绘 + 通知前端存档。
+     ★ 返回 false 表示参数没变（不必重绘）。 */
+  function applyOvCfg(colName, type, n) {
+    var ov = overlayOf(colName);
+    if (!ov) { return false; }
+    var t = (String(type).toLowerCase() === 'ema') ? 'ema' : 'ma';
+    var len = Math.round(+n);
+    if (!isFinite(len)) { len = ov.n || 20; }
+    len = Math.round(clamp(len, 2, 500));
+    if (t === ov.type && len === ov.n) { return false; }
+
+    /* 用与启动时同一套实现重算（ChartPayload.maLine），
+       避免"图上一条线、页脚另一个指标"的两套口径。 */
+    var api = window.ChartPayload;
+    if (!api || typeof api.maLine !== 'function') { return false; }
+    SER[colName] = api.maLine(col('c'), t, len);
+    ov.type = t;
+    ov.n = len;
+    ov.label = (t === 'ema' ? 'EMA ' : 'MA ') + len + ' close';
+    /* ★ 记进真源（2026-11-01）：换品种/补历史会重建载荷，
+       那时按这里记的值把参数盖回去，否则用户改的参数一会就丢。 */
+    maCfg[colName] = { type: t, n: len };
+    draw();
+    if (typeof window.__VIEWER_ON_MACFG__ === 'function') {
+      try { window.__VIEWER_ON_MACFG__(getOvCfg()); } catch (e) { }
+    }
+    return true;
+  }
+
+  /* 导出当前三条线的参数（供前端落盘） */
+  function getOvCfg() {
+    var out = {};
+    ((specOf(PRIMARY).overlays) || []).forEach(function (ov) {
+      if (!ov.n) { return; }
+      out[ov.col] = { type: (ov.type === 'ema') ? 'ema' : 'ma', n: ov.n };
+    });
+    return out;
+  }
+
+  /* 灌入存档里的参数：只改类型/长度，不改颜色、不改顺序、不改显隐。
+     ★ 必须在 bindData() 之后调用 —— 那时 spec 里的 overlays 才存在。
+     ★ 先写进 maCfg 真源，再套用一次：存档是"用户上次的设定"，
+       写完要立刻在本屏生效，同时保证后续换品种不再打回默认。 */
+  function setOvCfg(obj) {
+    if (!obj || typeof obj !== 'object') { return; }
+    Object.keys(obj).forEach(function (k) {
+      var c = obj[k];
+      if (!c || typeof c !== 'object') { return; }
+      var len = Math.round(+c.n);
+      if (!isFinite(len)) { return; }
+      maCfg[k] = {
+        type: (String(c.type).toLowerCase() === 'ema') ? 'ema' : 'ma',
+        n: Math.round(clamp(len, 2, 500))
+      };
+    });
+    reapplyOverlays();
+    draw();
+  }
+
+  /* 浮层内的按钮事件：只绑一次（引擎启动时 DOM 已在） */
+  function bindOvPop() {
+    var el = ovPopEl();
+    if (!el || el.__bound) { return; }
+    el.__bound = true;
+
+    var ok = document.getElementById('dc-ovpop-ok');
+    var no = document.getElementById('dc-ovpop-no');
+    var x = document.getElementById('dc-ovpop-x');
+    var nEl = document.getElementById('dc-ovpop-len');
+    var tEl = document.getElementById('dc-ovpop-type');
+
+    function commit() {
+      if (!ovPopCol) { closeOvPop(); return; }
+      applyOvCfg(ovPopCol, tEl ? tEl.value : 'ma', nEl ? nEl.value : 20);
+      closeOvPop();
+    }
+    if (ok) { ok.addEventListener('click', function (e) { e.stopPropagation(); commit(); }); }
+    if (no) { no.addEventListener('click', function (e) { e.stopPropagation(); closeOvPop(); }); }
+    if (x) { x.addEventListener('click', function (e) { e.stopPropagation(); closeOvPop(); }); }
+    /* 回车 = 确定，Esc = 取消（输入长度时最顺手） */
+    if (nEl) {
+      nEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); closeOvPop(); }
+        /* 阻止冒泡：画布的键盘快捷键（方向键平移、a 自动居中）不能抢输入 */
+        e.stopPropagation();
+      });
+    }
+    /* 点浮层内部不要穿透到画布（否则会触发拖动/平移） */
+    el.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    el.addEventListener('click', function (e) { e.stopPropagation(); });
+  }
+
+  /* 点别处 / 滚轮缩放 / 窗口尺寸变化时收起浮层 ——
+     它是锚在齿轮上的临时面板，画面一动就失去参照，留着只会挡视线。 */
+  function bindOvPopDismiss() {
+    if (window.__ovPopDismissBound) { return; }
+    window.__ovPopDismissBound = true;
+    document.addEventListener('pointerdown', function (e) {
+      var el = ovPopEl();
+      if (!el || !el.classList.contains('show')) { return; }
+      if (el.contains(e.target)) { return; }
+      if (e.target && e.target.closest && e.target.closest('.lg-cog')) { return; }
+      closeOvPop();
+    }, true);
+    document.addEventListener('keydown', function (e) {
+      var el = ovPopEl();
+      if (!el || !el.classList.contains('show')) { return; }
+      if (e.key === 'Escape') { closeOvPop(); }
+    });
+  }
+
+  /* 浮层跟随齿轮：图例重绘后重新点亮 .on 并把浮层贴回去（2026-11-01）。
+     ★ 只做"若开着"的动作，不做开合判断 —— 开关由点击决定，
+       这里只负责让已经打开的面板不跑偏。 */
+  function syncOvPopAnchor() {
+    var el = ovPopEl();
+    if (!el || !el.classList.contains('show') || !ovPopCol) { return; }
+    var cog = null;
+    var host = LEG_HOST[PRIMARY];
+    if (host) {
+      var list = host.querySelectorAll('.lg-cog');
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].getAttribute('data-ov') === ovPopCol) { cog = list[i]; break; }
+      }
+    }
+    if (!cog) { closeOvPop(); return; }   /* 这条线已不在图上：收起 */
+    document.querySelectorAll('.lg-cog.on').forEach(function (b) {
+      b.classList.remove('on');
+    });
+    cog.classList.add('on');
+    placeOvPop(cog);
+  }
+
+  /* ==================================================================
+     均线参数的真源（2026-11-01）
+     ==================================================================
+     ★ 为什么需要引擎自己记一份，而不是只读 spec：
+       切品种（loadPayload）时载荷是【新造的】，spec.overlays 里的
+       type/n 会回到默认值 —— 用户刚把 MA10 改成 EMA50，换个品种就打回 MA10。
+       历史补数据（__VIEWER_ON_REACH_LEFT__）同理，它也会重建整条载荷。
+
+     ★ 所以规则是：用户在图例里改过的参数记在这里（maCfg），
+       任何一次 bindData 之后都由 reapplyOverlays() 重新套用，
+       把默认值盖回用户的值。存档（localStorage）只在本机，
+       与 ovHidden 同一口径。
+
+     ★ 形状：{ ema20: {type:'ema', n:20}, ma10: {type:'ma', n:10}, ... }
+       按【列名】索引 —— 顺序会变，列名是稳定标识。 */
+  var maCfg = {};
+
+  /* 按 maCfg 覆盖 spec 上的 type/n，并重算 SER 里的数组。
+     ★ 只算数据、不 draw：调用它的地方（bindData / loadPayload）
+       本来就会统一重绘一次，这里再画就多一帧。
+     ★ 没有 maCfg 记录的那条保持 spec 给的默认值不动。 */
+  function reapplyOverlays() {
+    var api = window.ChartPayload;
+    var p = specOf(PRIMARY);
+    var closes = col('c');
+    var list = p.overlays || [];
+    for (var i = 0; i < list.length; i++) {
+      var ov = list[i];
+      var c = maCfg[ov.col];
+      if (c) {
+        ov.type = (String(c.type).toLowerCase() === 'ema') ? 'ema' : 'ma';
+        ov.n = Math.round(clamp(+c.n || ov.n || 20, 2, 500));
+      }
+      if (!ov.type || !ov.n) { continue; }
+      /* 每次 bindData 后 SER 都是新对象，默认参数算好的数组不可信 ——
+         一律按当前 type/n 重算，保证"图例写的"就是"画出来的"。 */
+      if (api && typeof api.maLine === 'function' && closes.length) {
+        SER[ov.col] = api.maLine(closes, ov.type, ov.n);
+      }
+      ov.label = (ov.type === 'ema' ? 'EMA ' : 'MA ') + ov.n + ' close';
+    }
   }
 
   /* 把一份报告载荷绑定到引擎（初始化时调用一次；切换品种时再调用）。
@@ -1412,8 +1793,20 @@ footer{margin-top:14px;padding-top:10px}
     PANELS.forEach(function (id, k) {
       LEG_HOST[id] = document.getElementById(k === 0 ? 'dc-legend' : 'dc-' + id + '-legend');
     });
+    /* ★ 新载荷里的均线是按默认参数算的（2026-11-01）。
+       先把用户改过的参数套回去、并按它重算数组，
+       否则换品种/补历史之后会出现"图例写着 EMA50、画的是 MA10"。
+       ★ 必须在 bindOverlayEye 之前 —— 没有别的依赖，但先算数据再绑事件，
+         顺序上更清楚：这一段只处理数据，不带 DOM。 */
+    reapplyOverlays();
     /* ★ 填充完再绑（见 bindOverlayEye 的注释） */
     bindOverlayEye();
+    /* ★ 均线设置浮层（2026-11-01）：DOM 已在，绑一次即可；
+       浮层本身不属于图例，不受 innerHTML 重建影响。 */
+    bindOvPop();
+    bindOvPopDismiss();
+    /* 换载荷后浮层里指的可能是旧线，收起 */
+    closeOvPop();
   }
 
 
@@ -3552,14 +3945,16 @@ footer{margin-top:14px;padding-top:10px}
         var arr = col(ov.col);
         var hidden = !!(st.ovHidden && st.ovHidden[ov.col]);
         /* 隐藏时整行变淡、眼睛换成斜杠 —— 让人一眼看出"这条关了" */
-        /* ★ 结构：.lg-hot 包住【名称 + 眼睛】，数值 <b> 在容器外（2026-10-18）。
+        /* ★ 结构：.lg-hot 包住【名称 + 眼睛 + 齿轮】，数值 <b> 在容器外（2026-10-18）。
            ★ 为什么必须包起来（用户指出的 bug）：
              早先眼睛在名称右侧、但热区只有 .lg-name ——
              鼠标从名称移向按钮时离开名称，按钮立刻消失，永远点不到。
              现在两者同处 .lg-hot，hover 判定绑在容器上，
              鼠标在名称与按钮之间滑动始终不离开容器，不会断链。
            ★ 数值放在 .lg-hot 外面且 pointer-events:none：
-             满足"移到数字上不弹设置"的要求。 */
+             满足"移到数字上不弹设置"的要求。
+           ★ 齿轮（2026-11-01）跟在眼睛后面，与眼睛同处热区 ——
+             这样"移上去两个一起出现、移出去两个一起消失"，不会一个闪一个留。 */
         html += '<div class="lg-r lg-ov' + (hidden ? ' off' : '') + '"'
              +  ' data-ov="' + ov.col + '">'
              +  '<span class="lg-hot">'
@@ -3568,12 +3963,21 @@ footer{margin-top:14px;padding-top:10px}
              +    ' title="' + (hidden ? '显示这条线' : '隐藏这条线') + '">'
              +    (hidden ? ICON_EYE_OFF : ICON_EYE_ON)
              +    '</button>'
+             +    '<button class="lg-cog" type="button" data-ov="' + ov.col + '"'
+             +    ' title="设置（类型 / 长度）">'
+             +    ICON_COG
+             +    '</button>'
              +  '</span>'
              +  '<b style="color:' + (ov.color || '#1e293b') + '">'
              +  _fmt(arr[i], 2) + '</b>'
              +  '</div>';
       });
       mainHost.innerHTML = html;
+      /* ★ 图例刚被整块重建（2026-11-01）：齿轮是新的 DOM，
+         浮层若正开着，必须把"按下态"重新贴回那颗新齿轮，
+         否则会出现"设置框还在、齿轮却不见了"的错位。
+         位置也跟着重算 —— 画布尺寸/图例行位置变化时都走这里统一对齐。 */
+      syncOvPopAnchor();
     }
 
     /* 副面板图例：spec.legend 项 */
@@ -5640,6 +6044,11 @@ footer{margin-top:14px;padding-top:10px}
     getOverlayHidden: function () {
       return JSON.parse(JSON.stringify(st.ovHidden || {}));
     },
+    /* 读当前均线参数（{ema20:{type:'ema',n:20}, ...}），便于调试/前端对齐 */
+    getMaCfg: function () { return JSON.parse(JSON.stringify(getOvCfg())); },
+    /* ★ 设置均线参数（2026-11-01）。前端在取数成功后把存档灌进来。
+       只改类型/长度，不改颜色、顺序、显隐 —— 三件事互不干扰。 */
+    setMaCfg: function (obj) { setOvCfg(obj); },
     /* 读当前视图区间（供布局存档用） */
     getView: function () {
       return { start: Math.round(st.start), count: Math.round(st.count) };
@@ -6987,9 +7396,19 @@ footer{margin-top:14px;padding-top:10px}
              *   （TV_DEFAULT_C 的第 2、5 档都是 #8b1a3a），这样两处配色一致。
              *   顺序排在 MA10 下面（第三条）。
              *   可见性由引擎的图例开关控制（见 chart_engine 的 ov.hidden）。 */
-            { col: 'ema20', color: '#111827', width: 1.5, label: 'EMA ' + IND.ema + ' close' },
-            { col: 'ma10',  color: '#f7c98b', width: 1.5, label: 'MA ' + IND.ma[0] + ' close' },
-            { col: 'ma30',  color: '#f2b8c6', width: 1.5, label: 'MA ' + (IND.ma[1] !== undefined ? IND.ma[1] : 30) + ' close' }
+            /* ★ type / n（2026-11-01）：这条线【是什么算法、多长】。
+               以前只有 col + label，参数只藏在 label 字符串里 ——
+               图例齿轮打开设置时要回填"当前是 EMA 还是 MA、长度多少"，
+               从字符串里反解析太脆（label 是给人看的，不是数据）。
+               现在显式给出来：引擎读它算线、图例读它拼标题、设置框读它回填。
+               ★ 列名 col 仍然固定（ema20/ma10/ma30），不随参数改 ——
+                 引擎与显隐存档都按列名索引，改列名等于把接口改坏。 */
+            { col: 'ema20', type: 'ema', n: IND.ema,
+              color: '#111827', width: 1.5, label: 'EMA ' + IND.ema + ' close' },
+            { col: 'ma10',  type: 'ma',  n: IND.ma[0],
+              color: '#f7c98b', width: 1.5, label: 'MA ' + IND.ma[0] + ' close' },
+            { col: 'ma30',  type: 'ma',  n: (IND.ma[1] !== undefined ? IND.ma[1] : 30),
+              color: '#f2b8c6', width: 1.5, label: 'MA ' + (IND.ma[1] !== undefined ? IND.ma[1] : 30) + ' close' }
           ]
         },
         {
@@ -7074,10 +7493,29 @@ footer{margin-top:14px;padding-top:10px}
       whiteboard_file: 'whiteboard_' + meta.key + '.html'
     };
   }
-  /* 对外只暴露一个入口：把 bar 列表组装成引擎载荷。
-     其余（ema/sma/rsi/macd）是内部实现，不导出 —— 外部要算指标应
-     直接用 model/indicators.py，避免两套口径漂移。 */
-  root.ChartPayload = { build: buildPayload };
+  /* 对外只暴露两个入口：
+       build   把 bar 列表组装成引擎载荷（默认参数）
+       maLine  按【类型 + 长度】算一条均线（图例齿轮改参数时用）
+     其余（rsi/macd 的内部细节）仍不导出 —— 外部要算指标应直接用
+     model/indicators.py，避免两套口径漂移。
+
+     ★ maLine 存在的理由（2026-11-01）：
+       用户在图上把某条均线从 MA20 改成 EMA50 后，如果只在前端拼一个数组塞给
+       引擎，就绕开了这里的口径（ema 的 adjust=False 递推、sma 的
+       min_periods=1）—— 屏幕上那条线与页脚写的指标就不是一回事了。
+       所以重算也必须走这里，与 build 用同一份实现。 */
+  root.ChartPayload = {
+    build: buildPayload,
+    /* type: 'ema' | 'ma'（其余值一律按 ma 处理）；n 会被夹到 2..500 */
+    maLine: function (closes, type, n) {
+      var len = Math.round(+n);
+      if (!isFinite(len) || len < 2) { len = 2; }
+      if (len > 500) { len = 500; }
+      var vals = [];
+      for (var i = 0; i < (closes || []).length; i++) { vals.push(+closes[i]); }
+      return (String(type).toLowerCase() === 'ema') ? ema(vals, len) : sma(vals, len);
+    }
+  };
 
 })(typeof window !== 'undefined' ? window : this);
 </script>
@@ -9433,6 +9871,13 @@ footer{margin-top:14px;padding-top:10px}
         try { window.__VIEWER_APPLY_OVHIDDEN__(); } catch (e) { }
       }
 
+      /* ★ 均线参数（类型 + 长度）的恢复【不在这里】，见页脚赋值之后。
+         ★ 为什么挪走：它会顺带刷新页脚「指标：」，
+           而页脚文本是在下面才赋值的 —— 在这里恢复，
+           紧接着那一步会把页脚覆盖回载荷里按【默认参数】拼的那份，
+           用户存的参数就白恢复了（实测：改成 MA55 后刷新，页脚仍写 EMA 20）。
+           顺序必须是：先写页脚默认文本，再按存档覆盖。 */
+
       /* ★ 恢复视图区间（缩放/平移），模板资产的一部分（2026-10-18）。
          同样在引擎起来之后 —— 它会调 DIVCHART.setView()。 */
       if (typeof window.__VIEWER_APPLY_LAYOUT__ === 'function') {
@@ -9468,6 +9913,18 @@ footer{margin-top:14px;padding-top:10px}
           indEl.textContent = '—';
           indEl.title = '未能从载荷读到指标说明（__DIV_DATA__.indicators）';
         }
+      }
+
+      /* ★ 恢复均线参数（类型 + 长度，2026-11-01）。
+         ★ 必须放在【页脚赋值之后】：
+           它内部会重算均线数组并刷新页脚「指标：」，
+           若早于上面那段执行，页脚会被载荷里按默认参数拼的文本覆盖，
+           用户存的参数等于白恢复。
+         ★ 也必须在 __VIEWER_APPLY_OVHIDDEN__ 之后 ——
+           显隐与参数是两件事，先参数后显隐则最后一次 draw()
+           落定的是"用户关掉的那几条不画"，与上次看到的一致。 */
+      if (typeof window.__VIEWER_APPLY_MACFG__ === 'function') {
+        try { window.__VIEWER_APPLY_MACFG__(); } catch (e) { }
       }
 
       document.title = CODE + ' ' + TF + ' — 看图器';
@@ -10812,6 +11269,11 @@ footer{margin-top:14px;padding-top:10px}
   /* 自选下拉的分组折叠状态（2026-10-19）。同样是显示偏好：
      换台机器分辨率/习惯不同，照搬别人的折叠状态反而别扭。 */
   TEMPLATE_KEYS['divchart:pickFold'] = 1;
+  /* 均线参数（类型 + 长度，2026-11-01）。与显隐同属模板资产 ——
+     它定义"这套图怎么显示"，不是数据，不进云备份。
+     ★ 键名与下方 MACFG_KEY 必须一致；两处分开写是因为
+       这里在 IIFE 前部，而 MACFG_KEY 在中部才声明（var 提升拿不到值）。 */
+  TEMPLATE_KEYS['divchart:maCfg'] = 1;
 
   function readJson(key, def) {
     try {
@@ -10891,6 +11353,77 @@ footer{margin-top:14px;padding-top:10px}
     if (obj && typeof obj.count === 'number') { keep.count = obj.count; }
     writeJson(LAYOUT_KEY, keep);
   };
+
+  /* ==================================================================
+     均线参数（类型 + 长度）—— 模板资产，只存本机（2026-11-01）
+     ==================================================================
+     ★ 为什么是本机而不是云备份：
+       它和 ovHidden 是同一类东西（"这套图怎么显示"），
+       用户在图表上把 MA10 改成 EMA20，是此刻看图习惯，
+       换台机器照搬过去反而别扭 —— 与均线显隐同一口径。
+
+     ★ 形状：{ "ema20": {"type":"ema","n":20}, "ma10": {...}, "ma30": {...} }
+       按【列名】索引，不是按顺序 —— 顺序会变，列名是稳定标识。
+
+     ★ 不变量：这里只存参数，不存显隐、颜色、顺序。
+       三件事各有各的入口，混在一起以后改一处会误伤另一处。 */
+  var MACFG_KEY = 'divchart:maCfg';
+
+  window.__VIEWER_APPLY_MACFG__ = function () {
+    var C = window.DIVCHART;
+    if (!C || typeof C.setMaCfg !== 'function') { return; }
+    try { C.setMaCfg(readJson(MACFG_KEY, {})); } catch (e) { }
+    /* ★ 页脚同步（2026-11-01）：存档里的参数可能不是默认值，
+       首屏页脚却还是载荷按默认参数拼的那份文本，必须重拼一次。
+       顺序：先 setMaCfg（图例已更新），再刷页脚（读图例）。 */
+    try { refreshIndFooter(); } catch (e) { }
+  };
+
+  /* 用户在图例齿轮里改了参数：写回存档。由引擎回调。
+     ★ 顺便刷新页脚「指标：」（2026-11-01）。
+       页脚那份说明来自载荷的 indicators，是 build 时按默认参数拼的 ——
+       用户把 EMA20 改成了 MA55，页脚却还写着 EMA 20，文档与实际漂移。
+       早先这一节就明确写过"不要在页脚写死一份"，
+       所以这里按【当前真正在画的参数】重拼，而不是保留旧文本。
+     ★ 每条均线的类型/长度由引擎回报（obj），RSI/MACD 等其余项
+       仍从载荷的 indicators 里取 —— 引擎不认识它们，也不该认识。 */
+  window.__VIEWER_ON_MACFG__ = function (obj) {
+    writeJson(MACFG_KEY, obj || {});
+    try { refreshIndFooter(); } catch (e) { }
+  };
+
+  /* 页脚「指标：」刷新：把载荷里的 EMA/MA 三项替换成【图例上真正在用的】参数。
+     ★ 认不出来的项原样保留 —— 将来若加了别的指标（RSI/MACD 等），
+       这里不该把它们一并对掉。
+     ★ 均线的当前参数从图例标签里读（"EMA 20 close" 取前两段），
+       因为这个函数只在用户改完参数后调用，那时图例已经是最新的。
+       不从 cfg 读是为了让"页脚写什么"与"图例写什么"永远同源 ——
+       两处各自拼字符串迟早会分叉。 */
+  function refreshIndFooter() {
+    var indEl = document.getElementById('vk-ind');
+    var list = (window.__DIV_DATA__ || {}).indicators;
+    if (!indEl || !list || !list.length) { return; }
+
+    /* 1. 图例上的均线（顺序即显示顺序） */
+    var lines = [];
+    var host = document.getElementById('dc-legend');
+    if (host) {
+      [].forEach.call(host.querySelectorAll('.lg-name'), function (e) {
+        var parts = String(e.textContent || '').trim().split(/\s+/);
+        if (parts.length >= 2) { lines.push(parts[0] + ' ' + parts[1]); }
+      });
+    }
+
+    /* 2. 载荷里非均线的项（RSI 14、MACD-H(...)）原样保留 */
+    var keep = [];
+    list.forEach(function (s) {
+      var txt = String(s);
+      if (!/^(EMA|MA)\s*\d+$/.test(txt)) { keep.push(txt); }
+    });
+
+    /* 3. 均线取不到（理论不该发生）时退回载荷原文，不要输出空 */
+    indEl.textContent = (lines.length ? lines.concat(keep) : list).join(' / ');
+  }
 
   /* ================= 画线标注的采集 / 恢复 =================
      ★ 为什么"按前缀扫描"而不是写死品种：
