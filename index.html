@@ -1312,7 +1312,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-10-26 01:25
+生成：2026-11-11 00:19
 </div>
 </footer>
 
@@ -2846,20 +2846,25 @@ footer{margin-top:14px;padding-top:10px}
   /* ★ 按需取数（2026-10-19）：页面可挂一个返回 Promise 的函数，
      首次 Alt+点击时才去取 5m，避免打开页面就多一次请求。
        返回 Promise<subpath载荷 | null>；载荷格式同 D.subpath。
+     ★ 2026-11-11：loader 现在接收【要展开的那一根 bar 下标】。
+       原因：币安 5m 单次只能取最近 1500 根（≈5.2 天），而主图 12h 一屏
+       280 根 ≈ 140 天 —— 点稍早的 K 线就只剩"该日无次级数据"。
+       带上下标后，viewer 层可以按这一根的时间窗补取 5m，
+       再与已有的段合并成新载荷返回；引擎这边只负责替换数据、重新打开。
      ★ 为什么不直接塞 D.subpath：
        取数要走交易所接口，那属于 viewer 层（数据来源），
        引擎只认"载荷"，不该认识新浪/东财。所以这里留一个函数钩子。 */
   var SUBPATH_LOADER = null;
   var spErrNote = '';    // 取数失败时的原因（引擎内显示，不弹窗）
 
-  function requestSubPath() {
-    if (!SUBPATH_LOADER || spState.loading || spState.data) { return; }
+  function requestSubPath(bar) {
+    if (!SUBPATH_LOADER || spState.loading) { return Promise.resolve(null); }
     spState.loading = true;
     spErrNote = '';
     draw();
     var p;
-    try { p = SUBPATH_LOADER(); } catch (e) { p = null; spErrNote = String(e && e.message || e); }
-    Promise.resolve(p).then(function (sp) {
+    try { p = SUBPATH_LOADER(bar); } catch (e) { p = null; spErrNote = String(e && e.message || e); }
+    return Promise.resolve(p).then(function (sp) {
       /* ★ 必须先清 loading：initSubPath 的守卫是
          `if (... || spState.loading) return;` ——
          requestSubPath 自己把 loading 置了 true，不清就会当场 return，
@@ -2870,15 +2875,29 @@ footer{margin-top:14px;padding-top:10px}
         spErrNote = spErrNote || '取不到 5 分钟数据';
         spState.pending = -2;
         draw();
-        return;
+        return null;
+      }
+      /* ★ 已有数据时说明这是【补取某一根】（2026-11-11）：
+         新载荷包含旧段 + 新补的段，必须整份替换。
+         替换前清掉框的状态，但【保留 pending】—— 解压完成后
+         initSubPath 会把它自动展开。 */
+      if (spState.data) {
+        spState.data = null;
+        spState.bar = -1;
+        spState.view = null;
+        spState.drag = null;
+        spState.hover5 = -1;
+        spState.rect = null;
       }
       D.subpath = sp;               /* 记到载荷上，后续切根不必再取 */
       initSubPath(sp);
+      return sp;
     }).catch(function (e) {
       spState.loading = false;
       spErrNote = String((e && e.message) || e);
       spState.pending = -2;
       draw();
+      return null;
     });
   }
 
@@ -4363,8 +4382,25 @@ footer{margin-top:14px;padding-top:10px}
       e.preventDefault();
       if (st.textBox) { commitTextBox(); }
       var spBar = Math.round(iAt(m.x));
+      /* ★ 右侧留白区里点击时 iAt() 会算出 >= N 的下标，
+         钳到最后一根 —— 用户的本意是"看这段行情"。 */
+      if (spBar < 0) { spBar = 0; }
+      if (spBar >= N) { spBar = N - 1; }
       if (spState.data) {
-        toggleSubPath(spBar);
+        var rg = subPathRange(spBar);
+        if (rg && rg.count) {
+          toggleSubPath(spBar);
+        } else {
+          /* ★ 这一根在已取的 5m 窗口之外（2026-11-11）：
+             币安 5m 一次只给最近 1500 根，较早的根没有数据。
+             把根号交给 loader 按需补取，取回来自动展开。
+             ★ 先把 bar 指过来：requestSubPath 会置 loading 并 draw，
+               这样空框上立刻显示"正在取 5m 数据…"，而不是旧框原地不动。 */
+          spState.pending = spBar;
+          spState.bar = spBar;
+          spState.view = null;
+          requestSubPath(spBar);
+        }
       } else if (D.subpath) {
         /* 载荷在、但还没解压好：记下这一根，解压完成后自动打开；
            同时立刻触发一次解压（可能 idle 回调还没跑到）。 */
@@ -4373,7 +4409,7 @@ footer{margin-top:14px;padding-top:10px}
       } else {
         /* 按需取数：先记下要开哪一根，取回来再解压、再自动展开。 */
         spState.pending = spBar;
-        requestSubPath();
+        requestSubPath(spBar);
       }
       return;
     }
@@ -5837,10 +5873,33 @@ footer{margin-top:14px;padding-top:10px}
       };
     },
     subpathOpen: function (bar) { return toggleSubPath(bar); },
+    /* ★ 确保某一根有次级数据并展开（2026-11-11）。
+       与 subpathOpen 的区别：subpathOpen 只在内存里切换，没数据就返回 false；
+       本接口会走 loader 按需补取该根的 5m（与 Alt+点击同一条路径）。
+       返回 Promise<boolean>：取数完成即 resolve；解压是异步的，
+       需要"已可绘制"时轮询 subpathState().ready。 */
+    subpathEnsure: function (bar) {
+      var b = Math.round(+bar);
+      if (!isFinite(b)) { return Promise.resolve(false); }
+      if (b < 0) { b = 0; }
+      if (b >= N) { b = N - 1; }
+      if (spState.data) {
+        var rg = subPathRange(b);
+        if (rg && rg.count) {
+          spState.bar = b;
+          spState.view = null;
+          draw();
+          return Promise.resolve(true);
+        }
+      }
+      spState.pending = b;
+      return requestSubPath(b).then(function () { return !!spState.data; });
+    },
     clearSubPath: function () { spState.bar = -1; draw(); },
     /* ★ 2026-10-19 按需取数：页面挂一个返回 Promise 的函数，
        首次 Alt+点击时才去取 5m（打开页面不多请求）。
-         返回值：subpath 载荷 {tf, lo, hi, b64} 或 null。
+         参数 bar：要展开的那一根下标（2026-11-11 新增，供按根补取）。
+         返回值：Promise<subpath 载荷 {tf, lo, hi, b64} | null>。
        传 null 可取消（回到"只有预置载荷才响应 Alt"的行为）。 */
     setSubpathLoader: function (fn) {
       SUBPATH_LOADER = (typeof fn === 'function') ? fn : null;
@@ -7526,12 +7585,13 @@ footer{margin-top:14px;padding-top:10px}
   var qs = new URLSearchParams(location.search || '');
 
   /* ★ 默认品种：币安 BTCUSDT（2026-10-20 用户要求，原为 600519 贵州茅台）。
-     ★ 周期会自动落到 6 时（见 defaultTfFor：加密默认 '6h'），
+     ★ 周期由 defaultTfFor 决定（BTCUSDT 落在 6 时），
        不需要在这里写死周期 —— 写死会与"切品种保留周期"的规则打架。 */
   var CODE = qs.get('code') || CFG.code || 'BTCUSDT';
 
   /* 按代码形态推测【默认周期】—— 只用于"第一次取数该用哪个周期"。
-     ★ 币安/欧易 -> '6h'（它们的最小可用周期就是 6 时）
+     ★ 币安 -> BTCUSDT / ETHUSDT 为 '6h'，其余品种 '12h'（2026-11-10 用户要求）
+     ★ 欧易 -> '6h'（最小可用周期就是 6 时）
      ★ 期货/A股/美股 -> 'day'
      ★ 判据与 fetchBars 的分支保持一致，否则会出现"按 6h 取、但走的是
        新浪接口（不支持 6h）"的错配。
@@ -7554,11 +7614,30 @@ footer{margin-top:14px;padding-top:10px}
     return ['day', 'week'];
   }
 
-  /* 该品种的默认周期：加密 6时，其余 日。 */
+  /* 该品种的默认周期。
+     ★ 2026-11-10 用户要求：币安市场里只有 BTCUSDT / ETHUSDT 保持 6 时，
+       其余全部默认 12 时。欧易、期货、A股、美股的行为不变。
+     ★ 为什么这里只做字符串判断，不查 CRYPTO_SYMBOLS：
+       本函数在文件顶部就被 pickTf() 调用，那时 CRYPTO_SYMBOLS 的赋值
+       还没执行（var 提升只有声明），读它会直接拿到 undefined。
+     ★ 判定"是不是币安"必须与 supportedTfsFor 的币安分支一致。 */
   function defaultTfFor(code) {
+    var raw = String(code || '').trim();
+    var isBinance = /^binance[:：]/i.test(raw)
+      || /^[A-Za-z0-9]{2,20}USDT$/i.test(raw);
+    if (isBinance) {
+      var pair = raw.replace(/^binance[:：]/i, '').toUpperCase();
+      return (pair === 'BTCUSDT' || pair === 'ETHUSDT') ? '6h' : '12h';
+    }
     var tfs = supportedTfsFor(code);
     return (tfs.indexOf('6h') >= 0) ? '6h' : 'day';
   }
+
+  /* 把默认周期规则挂到 window（2026-11-10）。
+     ★ 为什么：周期下拉在 chart_view.py 里按 MARKET 回填，
+       它也需要"币安按品种取默认"这条规则。规则只在这里定义一份，
+       那边通过本接口取，避免两处各写一套后漂移。 */
+  window.__VIEWER_DEFAULT_TF__ = defaultTfFor;
 
   /* ==================================================================
      __GH__：GitHub 私有仓访问（2026-10-22 新增）
@@ -8791,13 +8870,143 @@ footer{margin-top:14px;padding-top:10px}
     });
   }
 
+  /* ==================================================================
+     5m 次级数据的按需补取（2026-11-11）
+     ==================================================================
+     ★ 背景：币安 5m 单次最多 1500 根（≈5.2 天），而主图 12h 一屏 280 根
+       ≈ 140 天 —— 除最近几天外，Alt+点击都显示"该日无次级数据"。
+     ★ 做法：首次取最近 1500 根；之后点哪根、如果不在已取范围内，
+       就按该根的时间窗补取 5m，合并进缓存后重新编码整份 SP02。
+       引擎收到新载荷会整份替换，所以补取过的根一直可用。
+     ★ 缓存按【品种 + 周期 + 主图首末根】复位 ——
+       换品种/换周期后主图变了，旧 5m 段就对不上了。 */
+  var SUB_CACHE = { key: '', segs: [] };
+  var SUB_STEP_MS = 5 * 60 * 1000;
+
+  function subCacheKey(mainBars) {
+    var m = mainBars.length;
+    return [CODE, TF, m,
+            mainBars[0] ? mainBars[0].t : '',
+            mainBars[m - 1] ? mainBars[m - 1].t : ''].join('|');
+  }
+
+  /* 主图时间串（本地时区渲染）-> 毫秒。
+     ★ 不能用文件里的 parseStamp：那个按 UTC 解析，只适合"主图与 5m
+       之间"的相对比较；给交易所发 startTime/endTime 必须是绝对时间，
+       按 UTC 解析会整体偏 8 小时（北京时间用户）。 */
+  function localMsOf(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/
+      .exec(String(s || '').trim());
+    if (!m) { return 0; }
+    return new Date(+m[1], +m[2] - 1, +m[3],
+                    +(m[4] || 0), +(m[5] || 0)).getTime();
+  }
+
+  function tfMsOf(tf) {
+    return { '6h': 6 * 3600000, '8h': 8 * 3600000, '12h': 12 * 3600000,
+             'day': 24 * 3600000, 'week': 7 * 24 * 3600000 }[tf]
+           || 24 * 3600000;
+  }
+
+  /* 合并 5m 段：按时间串去重 + 升序。上限 30000 根（≈104 天），
+     超了丢最早的一段 —— 再点回去会重新补取。 */
+  function mergeSub5m(segs, add) {
+    var map = Object.create(null), i, out = [];
+    for (i = 0; i < segs.length; i++) { map[segs[i].t] = segs[i]; }
+    for (i = 0; i < (add || []).length; i++) { map[add[i].t] = add[i]; }
+    Object.keys(map).sort().forEach(function (k) { out.push(map[k]); });
+    if (out.length > 30000) { out = out.slice(out.length - 30000); }
+    return out;
+  }
+
+  /* 该根是否已有 5m 覆盖（segs 升序，时间串字典序 = 时间序） */
+  function hasSubCover(mainBars, b, segs) {
+    if (!segs.length || b < 0 || b >= mainBars.length) { return false; }
+    var t0 = localMsOf(mainBars[b].t);
+    var t1 = (b + 1 < mainBars.length) ? localMsOf(mainBars[b + 1].t)
+      : (t0 + tfMsOf(TF));
+    if (!t0 || !t1 || t1 <= t0) { return false; }
+    for (var i = segs.length - 1; i >= 0; i--) {
+      var ms = localMsOf(segs[i].t);
+      if (ms >= t1) { continue; }     /* 晚于该根：继续往前找 */
+      return ms >= t0;                /* 找到的第一根就是最近的一根 */
+    }
+    return false;
+  }
+
+  /* 币安 5m：按 [t0, t1) 取数，单页 1500，必要时翻页。 */
+  function fetchSubBinanceRange(symbol, t0, t1) {
+    var cfg = CRYPTO_SRC.binance;
+    var rows = [];
+    function page(start) {
+      var left = Math.ceil((t1 - start) / SUB_STEP_MS);
+      if (left <= 0) { return Promise.resolve(); }
+      var n = Math.min(cfg.maxLimit, left);
+      var url = cryptoBase(cfg) + cfg.path
+        + '?symbol=' + encodeURIComponent(symbol)
+        + '&interval=5m&limit=' + n
+        + '&startTime=' + start
+        + '&endTime=' + (t1 - 1);
+      return fetchJson(url, 20000).then(function (arr) {
+        if (!arr || !arr.length) { return; }
+        for (var i = 0; i < arr.length; i++) {
+          rows.push(normalizeCryptoBar(arr[i], '5m'));
+        }
+        if (arr.length < n) { return; }
+        var next = (+arr[arr.length - 1][0]) + SUB_STEP_MS;
+        if (next >= t1) { return; }
+        return page(next);
+      });
+    }
+    return page(t0).then(function () { return rows; });
+  }
+
+  /* 币安：补齐某根所需的 5m，返回合并后的 segs。 */
+  function ensureBinanceSub(symbol, mainBars, bar) {
+    var b = Math.round(+bar);
+    var validBar = isFinite(b) && b >= 0 && b < mainBars.length;
+    var p = SUB_CACHE.segs.length
+      ? Promise.resolve([])
+      : fetchSubBinance(symbol);
+    return p.then(function (arr) {
+      SUB_CACHE.segs = mergeSub5m(SUB_CACHE.segs, arr);
+      if (!validBar || hasSubCover(mainBars, b, SUB_CACHE.segs)) {
+        return SUB_CACHE.segs;
+      }
+      var t0 = localMsOf(mainBars[b].t);
+      var t1 = (b + 1 < mainBars.length) ? localMsOf(mainBars[b + 1].t)
+        : (t0 + tfMsOf(TF));
+      if (!t0 || !t1 || t1 <= t0) { return SUB_CACHE.segs; }
+      return fetchSubBinanceRange(symbol, t0, t1).then(function (arr2) {
+        if (!arr2.length) {
+          throw new Error('该时段没有 5m 数据（' + mainBars[b].t + '）');
+        }
+        SUB_CACHE.segs = mergeSub5m(SUB_CACHE.segs, arr2);
+        return SUB_CACHE.segs;
+      });
+    });
+  }
+
   /* 取 5m 并编码。返回 Promise<SP02载荷 | null>。
      ★ 全来源都支持（2026-10-19 扩展到期货/美股/币安/欧易）。
-     ★ 按需调用：只有首次 Alt+点击才走这里。 */
-  function loadSubPath5m() {
+     ★ 按需调用：只有首次 Alt+点击才走这里。
+     ★ 2026-11-11：币安按 bar 补取（见上面的缓存段）；其他市场
+       仍取各自"最近一段"5m —— 那些接口没有随意指定历史窗口的能力。 */
+  function loadSubPath5m(bar) {
     var D = window.__DIV_DATA__ || {};
     var mainBars = D.bars || [];
     if (!mainBars.length) { return Promise.resolve(null); }
+
+    if (window.__VIEWER_MARKET__ === 'binance') {
+      var bi = cryptoOf(CODE);
+      if (!bi) { return Promise.reject(new Error('不是币安合约代码：' + CODE)); }
+      var key = subCacheKey(mainBars);
+      if (SUB_CACHE.key !== key) { SUB_CACHE = { key: key, segs: [] }; }
+      return ensureBinanceSub(bi.symbol, mainBars, bar).then(function (segs) {
+        return encode5m(mainBars, segs);
+      });
+    }
+
     return Promise.resolve().then(fetchSub5m).then(function (r) {
       return encode5m(mainBars, r.bars);
     });
@@ -9636,9 +9845,12 @@ footer{margin-top:14px;padding-top:10px}
       /* ★ 按数据源填周期下拉（2026-10-18）。
          必须在 MARKET 写入之后 —— 它要读 __VIEWER_MARKET__ 决定列表与默认值。
          ★ 若 URL 里带了 ?tf= 且该数据源支持，就保持不动；
-           否则用该数据源的默认周期（加密 6时 / 其余 日）。 */
+           否则用该数据源的默认周期（币安按品种：BTC/ETH 6时，其余 12时；
+           欧易 6时 / 期货·A股·美股 日）。
+         ★ 必须把 CODE 传过去：币安的默认周期取决于具体品种，
+           只靠顶栏输入框的值在 URL 带 code 的冷启动时可能还没同步。 */
       if (typeof window.__VIEWER_APPLY_MARKET__ === 'function') {
-        try { window.__VIEWER_APPLY_MARKET__(); } catch (e) { }
+        try { window.__VIEWER_APPLY_MARKET__(CODE); } catch (e) { }
       }
 
       var meta = {
@@ -10927,6 +11139,11 @@ footer{margin-top:14px;padding-top:10px}
      ★ 绝不按代码名字推断，也不看来源下拉 ——
        数据实际来自哪家，取数逻辑自己最清楚。 */
   var MARKET_DEFS = {
+    /* ★ 表里的 def 是【数据源级兜底默认】。
+       币安真正生效的默认周期按品种算（2026-11-10 用户要求）：
+         BTCUSDT / ETHUSDT -> 6时，其余币安品种 -> 12时。
+       规则只定义在 viewer_boot.js 的 defaultTfFor()，
+       这里经 __VIEWER_DEFAULT_TF__ 取，见 __VIEWER_APPLY_MARKET__。 */
     binance: { label: '币安合约', tfs: ['6h', '8h', '12h', 'day', 'week'],
                def: '6h' },
     okx:     { label: '欧易合约', tfs: ['6h', '12h', 'day', 'week'],
@@ -11045,17 +11262,30 @@ footer{margin-top:14px;padding-top:10px}
   }
 
   /* 当前周期。默认值按数据源决定：
-     ★ 币安/欧易默认 6时，其余默认 日（用户明确要求）。
+     ★ 币安按品种：BTCUSDT / ETHUSDT 默认 6时，其余默认 12时（2026-11-10）；
+       欧易默认 6时，其余默认 日。
      ★ 但这里拿不到 MARKET（要等取数完成），所以先无条件用 URL 的 tf；
        没有 tf 时留空，等 __VIEWER_APPLY_MARKET__ 按 MARKET 填默认值。 */
   var CUR_TF = (qs.get('tf') || '');
 
-  /* 按 MARKET 重填周期下拉。由 boot 在取数成功后调用。 */
-  window.__VIEWER_APPLY_MARKET__ = function () {
+  /* 按 MARKET 重填周期下拉。由 boot 在取数成功后调用。
+     ★ 2026-11-10：参数 code 由 boot 传入。币安的默认周期取决于具体品种，
+       不能只看市场；规则统一放在 viewer_boot.js 的 defaultTfFor()，
+       这里通过 __VIEWER_DEFAULT_TF__ 取，避免两处各写一套。 */
+  window.__VIEWER_APPLY_MARKET__ = function (code) {
     if (!tfSel) { return; }
     var def = marketDef();
     /* 没有指定周期时用该数据源的默认周期 */
-    if (!CUR_TF || def.tfs.indexOf(CUR_TF) < 0) { CUR_TF = def.def; }
+    var defTf = def.def;
+    if (window.__VIEWER_MARKET__ === 'binance'
+        && typeof window.__VIEWER_DEFAULT_TF__ === 'function') {
+      var c = code || (codeEl ? codeEl.value : '') || qs.get('code') || '';
+      try {
+        var t0 = window.__VIEWER_DEFAULT_TF__(c);
+        if (t0 && def.tfs.indexOf(t0) >= 0) { defTf = t0; }
+      } catch (e) { }
+    }
+    if (!CUR_TF || def.tfs.indexOf(CUR_TF) < 0) { CUR_TF = defTf; }
 
     var html = '';
     for (var i = 0; i < TF_DEFS.length; i++) {
@@ -11125,7 +11355,7 @@ footer{margin-top:14px;padding-top:10px}
            -> 期货没有 6 小时 -> 报"不支持该周期"
            -> 而且永远回不到该品种的默认周期
        ★ 用户要求：换品种就回到新品种的默认周期
-           （加密 6时，其余 日）。
+           （币安 BTC/ETH 6时、其余币安品种 12时；欧易 6时；其余 日）。
          所以这里【不传 tf】，让 boot 的 pickTf() 按新品种算默认值。
        ★ 手动切周期不走这里 —— 那是 tfSel 的 change 分支，
          它会显式写 tf，属于"同一品种内换周期"，逻辑不同。 */
