@@ -1371,7 +1371,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-15 21:56
+生成：2026-11-16 00:18
 </div>
 </footer>
 
@@ -8737,64 +8737,78 @@ footer{margin-top:14px;padding-top:10px}
   /* 'YYYY-MM-DD HH:MM:SS' / 'YYYY-MM-DD' -> 'YYYY-MM-DD' */
   function dayOf(s) { return String(s || '').slice(0, 10); }
 
+  /* ---------------- 主图时间窗（★ 2026-11-15 修次级图层整体错位） ----------------
+     ★★ 旧实现的致命错误：日线/周线主图按【日期字符串相等】分组。
+        但加密的日线并不是本地自然日：
+          币安 1d 的 k[0] = UTC 00:00 -> 本地 08:00
+          欧易 1D 的 k[0] = UTC 16:00 -> 本地次日 00:00
+        所以一根"日线"实际横跨本地两天（如 08:00 ~ 次日 08:00），
+        而按日期分组只捞到其中一天——实测币安 BTCUSDT 日线每根只对上
+        288 根 5m（本地 00:00~23:55），而真实窗口是 08:00~次日 08:00。
+        ★ 这不是时区【显示】问题：错在分组边界，换任何时区看都错。
+     ★ 正确做法：所有周期统一按【时间窗】切分 5m：
+        5m 的时刻落在 [本根开始, 下一根开始) 就归这根。
+        日线/周线只需把"只有日期"的标签解析成它真正的起始时刻。
+
+     主图标签 -> 起始毫秒：
+       · 日内 'YYYY-MM-DD HH:MM'：就是它自己（本地时间）
+       · 纯日期 'YYYY-MM-DD'   ：当天 00:00 + 该市场的日界偏移
+     ★ 为什么需要 marketHint：'YYYY-MM-DD' 本身没有"几点开盘"的信息，
+       只能从数据源规则得知（币安日界在 UTC 00:00）。 */
+  function dayStartOffsetHours(marketHint) {
+    if (marketHint === 'binance') {
+      /* 币安日界固定在 UTC 00:00；换算成"本地几点"随所在时区变，
+         所以按当前时区算，而不是写死 8。 */
+      var d = new Date();
+      var h = (-d.getTimezoneOffset() / 60) % 24;
+      return (h + 24) % 24;
+    }
+    /* 欧易 1D 实测落在本地 00:00；A股/期货/美股日线也是自然日 */
+    return 0;
+  }
+
+  /* 主图第 i 根的起始毫秒（按上面的窗口语义） */
+  function mainStartMs(mainBars, i, marketHint) {
+    var s = String(mainBars[i].t || '');
+    if (s.length > 10) { return localMsOf(s); }   /* 日内：本身就是起点 */
+    var base = localMsOf(s);                      /* 纯日期：当天 00:00 本地 */
+    if (!base) { return 0; }
+    return base + Math.round(dayStartOffsetHours(marketHint) * 3600000);
+  }
+
   /* 主图每根 -> 5m 分组，返回 {gStart, gCount, used}。
      ------------------------------------------------------------------
-     ★★ 两种主图必须分开处理（2026-10-19 扩展到全来源时踩到的）：
-
-       ① 【日线及以上】主图 'YYYY-MM-DD'：一天一根，按日期直接对应。
-          A股/期货/美股的日线、周线都走这条。
-          ★ 周线也能用：5m 落在本周任意交易日，都归这一根周线。
-
-       ② 【日内】主图 'YYYY-MM-DD HH:MM'：一天多根（加密 6h/8h/12h）。
-          按日期切会把一整天的 5m 全塞进第一根 6h 里，后三根空白。
-          要按【时间区间】归组：5m 的时刻落在 [本根开始, 下一根开始) 内。
-
-     ★ 为什么不用"5m 属于哪根主图"的正向查找（只在①可行）：
-       ②里主图根与 5m 根不是固定倍数（有停盘/缺失），必须按边界切。 */
-  function group5mByMain(mainBars, sub5m) {
+     ★★ 2026-11-15 重写：不再分「日线按日期 / 日内按区间」两条路。
+        旧的两分支正是日线错位的根源：加密日线跨自然日，按日期必错。
+        现在一律按时间窗切分，与周期的表示形式无关。
+     ★ 主图根与 5m 根不是固定倍数（有停盘/缺失），
+       所以只能按边界切，不能做"每根固定 N 个"的假设。 */
+  function group5mByMain(mainBars, sub5m, marketHint) {
     var m = mainBars.length;
     var gStart = new Uint32Array(m), gCount = new Uint32Array(m);
-    var used = 0, i, k;
+    var used = 0, i;
 
-    /* 主图是否是日内（带时分） */
-    var intraday = false;
-    for (i = 0; i < m; i++) {
-      if (String(mainBars[i].t || '').length > 10) { intraday = true; break; }
-    }
-
-    if (!intraday) {
-      /* ---- ① 按日期 ---- */
-      var idx = Object.create(null);
-      for (i = 0; i < m; i++) {
-        var d = dayOf(mainBars[i].t);
-        if (d) { idx[d] = i; }
-      }
-      for (k = 0; k < sub5m.length; k++) {
-        var dk = dayOf(sub5m[k].t);
-        var j = idx[dk];
-        if (j === undefined) { continue; }
-        if (!gCount[j]) { gStart[j] = k; }
-        gCount[j]++;
-        used++;
-      }
-      return { gStart: gStart, gCount: gCount, used: used, intraday: false };
-    }
-
-    /* ---- ② 按时间区间 ----
-       主图每根的开始时刻作为边界；5m 归到「它 >= 边界 且 < 下一根边界」
-       的那一根。用毫秒比较，避免字符串比较的坑（'09:30' < '10:00' 成立，
-       但 '9:30' 就不成立）。 */
+    /* 每根的开始时刻；末根的右边界按"上一根步长"外推（日线=24h，周线=7d） */
     var bound = new Array(m + 1);
-    for (i = 0; i < m; i++) { bound[i] = parseTs(mainBars[i].t); }
-    bound[m] = Infinity;
-    /* 若时间戳解析失败，退回按日期（总比全空好） */
+    for (i = 0; i < m; i++) { bound[i] = mainStartMs(mainBars, i, marketHint); }
+    if (m >= 2 && bound[m - 1] > bound[m - 2]) {
+      bound[m] = bound[m - 1] + (bound[m - 1] - bound[m - 2]);
+    } else {
+      bound[m] = bound[m - 1] + tfMsOf(TF);
+    }
+
+    /* 解析失败（极少见）：退回旧的按日期逻辑，总比全空好 */
     if (!isFinite(bound[0]) || bound[0] === 0) {
       return group5mByDateFallback(mainBars, sub5m);
     }
-    /* 主图必须升序，逐根比较时才能用"落到第一个边界" */
-    var started = false;
+
     for (i = 0; i < sub5m.length; i++) {
-      var ts = parseTs(sub5m[i].t);
+      /* ★★ 必须用 localMsOf（本地解析），不能再用 parseTs（UTC 解析）。
+         2026-11-15：bound 由 mainStartMs 生成，是【本地】毫秒；
+         若 5m 仍按 UTC 解析，两套基准相差一个时区（北京 8 小时），
+         分组会整体错位 —— 表现为"每根日线还是只对上 00:00~23:55"。
+         两者必须同一基准，这是本函数唯一的硬约束。 */
+      var ts = localMsOf(sub5m[i].t);
       if (!isFinite(ts) || ts === 0) { continue; }
       /* 二分找最后一个 bound[j] <= ts 的 j */
       var lo = 0, hi = m - 1, hit = -1;
@@ -8804,12 +8818,13 @@ footer{margin-top:14px;padding-top:10px}
         else { hi = mid - 1; }
       }
       if (hit < 0) { continue; }                 /* 早于主图第一根 */
+      if (ts >= bound[hit + 1]) { continue; }    /* 晚于这根的时间窗 */
       if (!gCount[hit]) { gStart[hit] = i; }
       gCount[hit]++;
       used++;
-      started = true;
     }
-    return { gStart: gStart, gCount: gCount, used: used, intraday: true };
+    return { gStart: gStart, gCount: gCount, used: used,
+             intraday: String(mainBars[0].t || '').length > 10 };
   }
 
   /* 解析 'YYYY-MM-DD' 或 'YYYY-MM-DD HH:MM[:SS]' -> 毫秒。
@@ -9013,6 +9028,81 @@ footer{margin-top:14px;padding-top:10px}
        与日线同一套优先级。5m 的云囊肿文件名 tf 段就是 '5m'。
      ★ 注意：主用线失败后【才】退到胶囊，不要并行 ——
        5m 是 Alt+点击才触发的按需取数，多发一路请求没有收益。 */
+  /* 欧易：按 [t0, t1) 取 5m（★ 2026-11-15 新增，与币安对等）。
+     ★ 为什么需要它：早先欧易只走 fetchSubOkx() —— 固定取【最新 1500 根】
+       （约 5.2 天）。用户 Alt+点击一根更早的 K 线，那段根本不在窗口里，
+       于是要么空框、要么整份分组错位。用户反馈的"欧易也对不齐、
+       而且只取一次数据"正是这条路径。
+     ★ 实测 history-candles 支持 after（早于该毫秒，向前翻），
+       所以能精确取到任意历史区间，与币安能力一致。 */
+  function fetchSubOkxRange(symbol, t0, t1) {
+    var cfg = CRYPTO_SRC.okx;
+    if (!cfg.enabled) { throw new Error('欧易合约源已停用'); }
+    var base = cryptoBase(cfg);
+    var interval = cfg.intervalOf('5m');
+    var rows = [];
+
+    /* 从 t1 往早翻：after=t1 拿到的是 t1 之前的一批，逐页把游标前移 */
+    function page(cursor, guard) {
+      if (guard <= 0) { return Promise.resolve(); }
+      var n = cfg.maxLimit;
+      var url = base + cfg.path
+        + '?instId=' + encodeURIComponent(symbol)
+        + '&bar=' + encodeURIComponent(interval)
+        + '&limit=' + n
+        + '&after=' + cursor;
+      return fetchJson(url, 20000).then(function (j) {
+        var data = (j && j.data) || [];
+        if (!data.length) { return; }
+        var oldest = +data[data.length - 1][0];   /* 本页最早一根 */
+        for (var i = 0; i < data.length; i++) {
+          var ts = +data[i][0];
+          if (ts < t0 || ts >= t1) { continue; }  /* 只留窗口内 */
+          rows.push(data[i]);
+        }
+        if (oldest <= t0) { return; }             /* 已翻到窗口起点之前 */
+        if (data.length < n) { return; }          /* 该处无更早数据 */
+        return page(oldest, guard - 1);
+      });
+    }
+
+    /* 上限 80 页：单页 300 根 5m，80 页 ≈ 83 天，足够覆盖日线一根。 */
+    return page(t1, 80).then(function () {
+      if (!rows.length) { return []; }
+      rows.sort(function (a, b) { return (+a[0]) - (+b[0]); });
+      var out = [];
+      for (var i = 0; i < rows.length; i++) { out.push(normalizeCryptoBar(rows[i], '5m')); }
+      return out;
+    });
+  }
+
+  /* 欧易：补齐某根所需的 5m（与 ensureBinanceSub 对等） */
+  function ensureOkxSub(symbol, mainBars, bar) {
+    var b = Math.round(+bar);
+    var validBar = isFinite(b) && b >= 0 && b < mainBars.length;
+    var p = SUB_CACHE.segs.length
+      ? Promise.resolve([])
+      : fetchSubOkx(symbol);
+    return p.then(function (arr) {
+      SUB_CACHE.segs = mergeSub5m(SUB_CACHE.segs, arr);
+      if (!validBar || hasSubCover(mainBars, b, SUB_CACHE.segs)) {
+        return SUB_CACHE.segs;
+      }
+      var t0 = mainStartMs(mainBars, b, window.__VIEWER_MARKET__);
+      var t1 = (b + 1 < mainBars.length)
+        ? mainStartMs(mainBars, b + 1, window.__VIEWER_MARKET__)
+        : (t0 + tfMsOf(TF));
+      if (!t0 || !t1 || t1 <= t0) { return SUB_CACHE.segs; }
+      return fetchSubOkxRange(symbol, t0, t1).then(function (arr2) {
+        if (!arr2.length) {
+          throw new Error('该时段没有 5m 数据（' + mainBars[b].t + '）');
+        }
+        SUB_CACHE.segs = mergeSub5m(SUB_CACHE.segs, arr2);
+        return SUB_CACHE.segs;
+      });
+    });
+  }
+
   function subWithCapsule(market, primary, code) {
     return primary().catch(function (e) {
       var capCode = (market === 'us') ? String(code || '').toUpperCase() : code;
@@ -9082,7 +9172,9 @@ footer{margin-top:14px;padding-top:10px}
   function encode5m(mainBars, sub5m) {
     var n = sub5m.length;
     if (!n) { return Promise.resolve(null); }
-    var g = group5mByMain(mainBars, sub5m);
+    /* ★ 必须传市场：加密日线不是本地自然日，分组要按该市场的日界算窗口
+       （2026-11-15，见 group5mByMain 的注释）。 */
+    var g = group5mByMain(mainBars, sub5m, window.__VIEWER_MARKET__);
     if (!g.used) {
       return Promise.reject(new Error(
         '5m 数据与当前图上时间对不上（主图可能太老 —— 5m 只覆盖最近一段）'));
@@ -9179,11 +9271,15 @@ footer{margin-top:14px;padding-top:10px}
     return out;
   }
 
-  /* 该根是否已有 5m 覆盖（segs 升序，时间串字典序 = 时间序） */
+  /* 该根是否已有 5m 覆盖（segs 升序，时间串字典序 = 时间序）
+     ★ 2026-11-15：窗口起点必须用 mainStartMs（含日界偏移）。
+       早先用 localMsOf 把币安日线当成本地 00:00，判断"已覆盖"会算错，
+       导致该补的不补、或已补的又重取一次。 */
   function hasSubCover(mainBars, b, segs) {
     if (!segs.length || b < 0 || b >= mainBars.length) { return false; }
-    var t0 = localMsOf(mainBars[b].t);
-    var t1 = (b + 1 < mainBars.length) ? localMsOf(mainBars[b + 1].t)
+    var mk = window.__VIEWER_MARKET__;
+    var t0 = mainStartMs(mainBars, b, mk);
+    var t1 = (b + 1 < mainBars.length) ? mainStartMs(mainBars, b + 1, mk)
       : (t0 + tfMsOf(TF));
     if (!t0 || !t1 || t1 <= t0) { return false; }
     for (var i = segs.length - 1; i >= 0; i--) {
@@ -9233,8 +9329,9 @@ footer{margin-top:14px;padding-top:10px}
       if (!validBar || hasSubCover(mainBars, b, SUB_CACHE.segs)) {
         return SUB_CACHE.segs;
       }
-      var t0 = localMsOf(mainBars[b].t);
-      var t1 = (b + 1 < mainBars.length) ? localMsOf(mainBars[b + 1].t)
+      var t0 = mainStartMs(mainBars, b, window.__VIEWER_MARKET__);
+      var t1 = (b + 1 < mainBars.length)
+        ? mainStartMs(mainBars, b + 1, window.__VIEWER_MARKET__)
         : (t0 + tfMsOf(TF));
       if (!t0 || !t1 || t1 <= t0) { return SUB_CACHE.segs; }
       return fetchSubBinanceRange(symbol, t0, t1).then(function (arr2) {
@@ -9250,8 +9347,10 @@ footer{margin-top:14px;padding-top:10px}
   /* 取 5m 并编码。返回 Promise<SP02载荷 | null>。
      ★ 全来源都支持（2026-10-19 扩展到期货/美股/币安/欧易）。
      ★ 按需调用：只有首次 Alt+点击才走这里。
-     ★ 2026-11-11：币安按 bar 补取（见上面的缓存段）；其他市场
-       仍取各自"最近一段"5m —— 那些接口没有随意指定历史窗口的能力。 */
+     ★ 2026-11-11：币安按 bar 补取（见上面的缓存段）。
+     ★★ 2026-11-15：欧易也改为按 bar 补取（此前只取最新 1500 根 ≈5.2 天，
+        点更早的 K 线必然对不上）。其余市场（期货/A股/美股）仍取各自
+        "最近一段"5m —— 那些接口没有随意指定历史窗口的能力。 */
   function loadSubPath5m(bar) {
     var D = window.__DIV_DATA__ || {};
     var mainBars = D.bars || [];
@@ -9263,6 +9362,16 @@ footer{margin-top:14px;padding-top:10px}
       var key = subCacheKey(mainBars);
       if (SUB_CACHE.key !== key) { SUB_CACHE = { key: key, segs: [] }; }
       return ensureBinanceSub(bi.symbol, mainBars, bar).then(function (segs) {
+        return encode5m(mainBars, segs);
+      });
+    }
+
+    if (window.__VIEWER_MARKET__ === 'okx') {
+      var oi = cryptoOf(CODE);
+      if (!oi) { return Promise.reject(new Error('不是欧易合约代码：' + CODE)); }
+      var key2 = subCacheKey(mainBars);
+      if (SUB_CACHE.key !== key2) { SUB_CACHE = { key: key2, segs: [] }; }
+      return ensureOkxSub(oi.symbol, mainBars, bar).then(function (segs) {
         return encode5m(mainBars, segs);
       });
     }
