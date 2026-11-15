@@ -638,37 +638,62 @@ footer{margin-top:14px;padding-top:10px}
 .vk-codebox .vk-star.on{color:#f5a623}
 /* 候选下拉挂在外框下方，宽度跟随 */
 .vk-codebox .vk-sug{position:absolute;left:-1px;right:-1px;top:calc(100% + 4px)}
-/* ---------- 周期下拉 ----------
-   只占一个控件宽度。可选周期由 JS 按来源重填（见 PERIOD 一节）。 */
-/* ★ 2026-10-18 按用户要求：
-     收起时【不要边框】—— 只显示当前那一个周期，加个框显得笨重；
-     展开后的选项列表【保持有框】—— 那是原生下拉的行为，
-     浏览器自己画，我们只管 .vk-tfsel 本身。
-   ★ 为了"无框但仍可点"，用透明边框占位（避免切换时跳动 1px），
-     悬停时才显出淡灰底，让人知道这里可点。 */
-/* ★ 2026-10-18 第三轮调整：
-     收起时不要框（用户明确要求），但下拉箭头离文字太远 ——
-     原因是原生 select 的箭头固定贴右边，而 min-width 给宽了。
-     解法：把 min-width 压到刚好容纳「12时」三个字，箭头自然靠近。
-     ★ 用 padding-right:0 再压一点；appearance:none 会让箭头消失，
-       所以保留原生箭头（它本身就带内边距，压到最小即可）。 */
-/* ★★ 周期下拉：去掉边框（2026-10-18 第三轮，前两轮失败的原因写在这里）。
-     前三轮写的是 .vk-tfsel{...}，但文件后面 L601 有一条通用规则
-         .vk-input,.vk-sel{border:1px solid #d7dfe9;background:#fff;...}
-     两者权重相同（都是单类名），**后写的赢** —— 所以边框一直被它盖回来。
-     现在改用 `#vk-bar .vk-tfsel`（ID + 类），权重更高，无论顺序都能压住。
-     ★ 以后要覆盖 .vk-sel 的通用样式，都必须带 #vk-bar 前缀。 */
-#vk-bar .vk-tfsel{width:auto;min-width:0;max-width:none;
- padding:5px 0 5px 4px;font-size:var(--fs-body);cursor:pointer;
- border:1px solid transparent !important;background:transparent !important;
- border-radius:6px;box-shadow:none;
- transition:background .12s,border-color .12s}
-#vk-bar .vk-tfsel:hover{background:#f1f5f9 !important;
- border-color:#e2e8f0 !important}
-#vk-bar .vk-tfsel:focus{background:#fff !important;
- border-color:#93b4f5 !important;outline:none}
-.vk-tfsel:hover{background:#f1f5f9;border-color:#e2e8f0}
-.vk-tfsel:focus{background:#fff;border-color:#93b4f5;outline:none}
+/* ---------- 周期：平铺分段按钮（★ 2026-11-15 按下拉改平铺） ----------
+   ★ 为什么改：下拉展开会盖住图表；顶栏空间足够，平铺能一眼看全周期、
+     少一次展开。可选周期由 JS 按数据来源重填（见 PERIOD 一节）。
+   ★ 观感对齐 TradingView 的分段控件：浅灰底槽 + 选中白底轻阴影。
+     高度 32px，与顶栏其它控件齐平。 */
+.vk-tfgroup{display:inline-flex;align-items:center;gap:2px;min-height:32px;
+ padding:2px;background:#f1f5f9;border-radius:8px;flex:none}
+.vk-tfbtn{border:0;background:transparent;border-radius:6px;
+ color:#475569;font-family:inherit;font-size:15px;line-height:1;
+ padding:6px 9px;cursor:pointer;white-space:nowrap;
+ transition:background .12s,color .12s,box-shadow .12s}
+.vk-tfbtn:hover{background:#e6edf7;color:#111827}
+.vk-tfbtn.on{background:#fff;color:#111827;font-weight:600;
+ box-shadow:0 1px 2px rgba(15,23,42,.14)}
+.vk-tfbtn:focus{outline:none}
+.vk-tfbtn:focus-visible{outline:2px solid #93b4f5;outline-offset:0}
+@media (max-width:1100px){
+  .vk-tfbtn{font-size:14px;padding:6px 7px}
+}
+/* ---------- 前往到弹窗（2026-11-15，参考 TradingView） ----------
+   ★ 入口只有快捷键 Alt+G（顶栏没有按钮），所以这里只有弹窗样式。
+   ★ fixed 居中：与顶栏布局解耦，窄屏也不会跑位。 */
+.dc-goto{position:fixed;left:0;top:0;right:0;bottom:0;z-index:210;
+ display:none;align-items:center;justify-content:center;
+ background:rgba(15,23,42,.20);padding:20px}
+.dc-goto.show{display:flex}
+.gt-box{width:330px;max-width:100%;background:#fff;border:1px solid #e2e8f0;
+ border-radius:14px;box-shadow:0 20px 56px rgba(15,23,42,.26);
+ overflow:hidden;animation:gtIn .14s ease-out}
+@keyframes gtIn{from{opacity:0;transform:translateY(6px) scale(.99)}
+ to{opacity:1;transform:none}}
+.gt-head{display:flex;align-items:center;justify-content:space-between;
+ padding:14px 16px 6px}
+.gt-title{font-size:18px;font-weight:600;color:var(--ink-title)}
+.gt-x{flex:0 0 auto;width:28px;height:28px;border:0;border-radius:8px;
+ background:none;color:#94a3b8;font-size:20px;line-height:1;cursor:pointer;
+ padding:0;display:flex;align-items:center;justify-content:center}
+.gt-x:hover{background:#f1f5f9;color:#475569}
+.gt-body{padding:6px 16px 12px}
+.gt-row{display:flex;align-items:center;gap:10px;margin:4px 0 8px}
+.gt-lab{flex:none;font-size:var(--fs-body);color:#475569}
+.gt-date{flex:1 1 auto;min-width:0;border:1px solid #d7dfe9;border-radius:8px;
+ background:#fff;color:var(--ink-title);font-family:inherit;font-size:15px;
+ padding:5px 7px;outline:none;transition:border-color .12s}
+.gt-date:focus{border-color:#93b4f5;box-shadow:0 0 0 3px rgba(37,99,235,.10)}
+.gt-hint{min-height:20px;font-size:14px;line-height:1.6;color:#64748b}
+.gt-hint.err{color:#be123c}
+.gt-range{font-size:13px;line-height:1.6;color:#94a3b8}
+.gt-foot{display:flex;justify-content:flex-end;gap:8px;padding:11px 16px 15px;
+ border-top:1px solid #f1f5f9;background:#fbfcfe}
+.gt-btn{border:1px solid #d7dfe9;border-radius:9px;background:#fff;
+ color:#334155;font-family:inherit;font-size:15px;padding:6px 16px;
+ cursor:pointer;transition:all .12s}
+.gt-btn:hover{background:#f1f5f9}
+.gt-btn.primary{background:#2563eb;border-color:#2563eb;color:#fff;font-weight:600}
+.gt-btn.primary:hover{background:#1d4ed8;border-color:#1d4ed8}
 /* 更窄：连「同步」的文字都收起来，只留云图标 */
 @media (max-width:1100px){
   #vk-cloud-tx{display:none}
@@ -709,12 +734,19 @@ footer{margin-top:14px;padding-top:10px}
    正是这个控件的核心用法 —— 用原生 select 做不到。
    自定义下拉 = 一个按钮 + 一个绝对定位的列表面板。 */
 .vk-pickwrap{position:relative;display:inline-block}
+/* ★ 下拉箭头（2026-11-15）：按旁边【代码】原生 select 的箭头【实测参数】复刻。
+   ★ 为什么不能直接引用原生箭头：那个 V 是 Chrome 用 UA 私有样式画的，
+     不在 DOM/CSS 里，页面拿不到、也改不了。曾试过叠一个空的原生 <select>
+     只借箭头（pointer-events:none），实测 Chrome 不绘制 —— 所以只能复刻。
+   ★ 实测值（6× 截图取色/量宽，见 ARCHIVE 的「自选下拉箭头」）：
+       颜色 #475569、线宽 2px、跨度 10px、高 6px、端点平直。
+     注意别再用 #94a3b8 / 1.5px —— 那是浅一号、细一号，肉眼能看出差别。 */
 .vk-pickbtn{min-width:170px;max-width:200px;text-align:left;cursor:pointer;
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
- background-image:linear-gradient(45deg,transparent 50%,#94a3b8 50%),
-                  linear-gradient(135deg,#94a3b8 50%,transparent 50%);
- background-position:calc(100% - 13px) 50%,calc(100% - 8px) 50%;
- background-size:5px 5px,5px 5px;background-repeat:no-repeat;
+ background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23475569' stroke-width='2'/%3E%3C/svg%3E");
+ background-position:right 11px center;
+ background-size:10px 6px;
+ background-repeat:no-repeat;
  padding-right:26px}
 .vk-picklist{display:none;position:absolute;left:0;top:calc(100% + 4px);z-index:60;
  min-width:250px;max-height:420px;overflow-y:auto;background:#fff;
@@ -1017,19 +1049,22 @@ footer{margin-top:14px;padding-top:10px}
     <div id="vk-sug" class="vk-sug"></div>
   </span>
 
-  <!-- 周期：下拉式（2026-10-18 按用户要求，参考 TV 的样式）。
-       ★ 为什么改成下拉：周期最多 5 个（6时/8时/12时/日/周），
-         平铺成分段按钮要占掉大半个顶栏，而下拉只占一个控件宽度。
-       ★ 可选项按【来源】自适应：
-           币安              6时 8时 12时 日 周  （全选）
+  <!-- 周期：平铺分段按钮（★ 2026-11-15 按用户要求，从下拉改成平铺）。
+       ★ 为什么改回平铺：下拉展开会盖住图表，而顶栏空间足够；
+         分段按钮一眼看到全部可选周期，点一下即切，少一步展开。
+       ★ 可选项按【数据实际来源】自适应（由 JS 按 MARKET 重填）：
+           币安 BTC/ETH      6时 8时 12时 日 周  （全量）
+           币安其他品种       12时 日 周             （无 6时/8时）
            欧易              6时 12时 日 周        （无 8时）
            A股/期货/美股     日 周
-         不支持的周期【不进下拉列表】—— 下拉与按钮不同：
-         下拉里塞灰色禁用项会让人以为"点不了但存在"，
-         而实际上这些来源连这个概念都没有（A股没有 6 小时线）。
-         所以这里用"列表里就没有"来表达，比灰色更准确。 -->
-  <select id="vk-tf" class="vk-sel vk-tfsel" title="选择周期"></select>
+         不支持的周期【不渲染按钮】—— 不摆一个灰掉的占位：
+         那些来源连这个概念都没有（A股没有 6 小时线），
+         摆出来只会让人以为"点不了但存在"。 -->
+  <span id="vk-tf" class="vk-tfgroup" role="group" aria-label="周期"></span>
 
+  <!-- ★ 前往到（2026-11-15）：入口只有快捷键 Alt+G，顶栏不再放按钮。
+       跳转目标与周期强相关（周线落到包含该日的那一周），日期一律按
+       【日线日期】解释 —— 详见引擎 gotoDate。 -->
       <div class="dc-grp">
       <label class="dc-chk" title="平滑缺口：把上一根的收盘价当作本根的开盘价（高/低/收不变），抹掉跳空，让走势像 24 小时连续交易那样连贯。★仅影响显示，不改动原始数据与任何计算。"><input type="checkbox" id="dc-sm" checked>平滑缺口</label>
       <label class="dc-chk"><input type="checkbox" id="dc-abc">信号标注</label>
@@ -1050,6 +1085,30 @@ footer{margin-top:14px;padding-top:10px}
   <button id="vk-cloud" class="vk-cloud" type="button" title="云同步自选与画线">
     <span class="vk-cloud-wrap"><span class="vk-cloud-ic">☁</span><span id="vk-cloud-dot" class="vk-cloud-dot"></span></span><span id="vk-cloud-tx">同步</span>
   </button>
+</div>
+<!-- 前往到 · 日期弹窗（2026-11-15）
+     ★ 入口是快捷键 Alt+G（顶栏没有按钮），见 WIRE_JS 的 keydown。
+     ★ fixed 居中：与顶栏布局解耦，窄屏也不会跑位。
+     ★ 轻遮罩 + 点遮罩/Esc 关闭；Escape 只绑在本面板内，不抢 FIB 弹窗的键。 -->
+<div id="dc-goto" class="dc-goto" aria-hidden="true">
+  <div class="gt-box" role="dialog" aria-modal="true" aria-labelledby="gt-title">
+    <div class="gt-head">
+      <span class="gt-title" id="gt-title">前往到</span>
+      <button type="button" class="gt-x" id="gt-x" title="关闭">×</button>
+    </div>
+    <div class="gt-body">
+      <div class="gt-row">
+        <span class="gt-lab">日期</span>
+        <input id="gt-date" class="gt-date" type="date" />
+      </div>
+      <div class="gt-hint" id="gt-hint"></div>
+      <div class="gt-range" id="gt-range"></div>
+    </div>
+    <div class="gt-foot">
+      <button type="button" class="gt-btn" id="gt-cancel">取消</button>
+      <button type="button" class="gt-btn primary" id="gt-ok">前往</button>
+    </div>
+  </div>
 </div>
 
 
@@ -1312,7 +1371,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-11 00:19
+生成：2026-11-15 18:40
 </div>
 </footer>
 
@@ -2150,6 +2209,92 @@ footer{margin-top:14px;padding-top:10px}
     var t = new Date(base + stepMs * (k - (n - 1)));
     return stampStr(t, last.indexOf(' ') > 0);
   }
+  /* ---------------- 日期 → bar（「前往到」用，2026-11-15） ----------------
+     ★ 各周期的时间戳语义不同，不能统一按"日期相等"去找：
+         · day / 6h / 8h / 12h：t = 这一根的【起点】（日内是当天起始时刻）
+         · week：t = 这一周的【最后一个交易日】（新浪与本地聚合都标在周五）
+       所以周线必须按 ISO 周对齐：输入周三，也要落到"标签是本周五"的那根，
+       否则按日期找会一路退到上一周去。
+     ★ 输入日期一律当作【日线日期】—— 这正是需求：
+       "因为看盘器存在不同周期，所以统一跳转日线的起点"。 */
+  function dayOf(i) {
+    var a = col('day');
+    if (i >= 0 && i < a.length && a[i]) { return String(a[i]); }
+    var d = col('d');
+    return (i >= 0 && i < d.length && d[i]) ? String(d[i]).slice(0, 10) : '';
+  }
+  function tfOf() {
+    if (D.tf) { return String(D.tf).toLowerCase(); }
+    /* 兜底：载荷 key 形如 v_600519_day / v_BTCUSDT_6h */
+    var k = String(D.key || '');
+    var j = k.lastIndexOf('_');
+    return j >= 0 ? k.slice(j + 1).toLowerCase() : '';
+  }
+  /* ISO 周键（用该周周一表示）。日期一律按 UTC 解析，避免时区漂移。 */
+  function weekKeyOf(day) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(day || ''));
+    if (!m) { return ''; }
+    var dt = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    var wd = (dt.getUTCDay() + 6) % 7;        /* 周一=0 … 周日=6 */
+    dt.setUTCDate(dt.getUTCDate() - wd);
+    return dt.toISOString().slice(0, 10);
+  }
+  /* 第一个满足 keyFn(i) >= target 的下标（day 列升序，二分安全） */
+  function firstIndexAtOrAfter(target, keyFn) {
+    var lo = 0, hi = N;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      if (keyFn(mid) < target) { lo = mid + 1; } else { hi = mid; }
+    }
+    return lo;
+  }
+  /* 返回 { idx, kind }，kind：
+       exact    —— 命中了该日期所在的 bar
+       nearest  —— 该日期无 bar（周末/停牌/整周休市），落到最近的一根
+       before   —— 早于已加载数据起点
+       after    —— 晚于已加载数据末尾
+     越界但【与端点在同一 ISO 周】的日期按 nearest 处理：
+     周五收盘后输入周六/周日，应当停在周五那根，而不是报"超出范围"。 */
+  function locateDate(target) {
+    if (!N) { return { idx: -1, kind: 'empty' }; }
+    var first = dayOf(0), last = dayOf(N - 1);
+    var isWeek = tfOf() === 'week';
+
+    if (isWeek) {
+      var wk = weekKeyOf(target);
+      var iw = firstIndexAtOrAfter(wk, function (i) { return weekKeyOf(dayOf(i)); });
+      if (iw < N && weekKeyOf(dayOf(iw)) === wk) {
+        return { idx: iw, kind: 'exact' };
+      }
+      if (target < first) {
+        return { idx: 0, kind: (weekKeyOf(target) === weekKeyOf(first)) ? 'nearest' : 'before' };
+      }
+      if (target > last) {
+        return { idx: N - 1, kind: (wk === weekKeyOf(last)) ? 'nearest' : 'after' };
+      }
+      /* 这一整周都没有数据（长假 / 停牌）：落到下一个有数据的交易周，
+         比退回上一周更符合"跳到这一天"的预期。 */
+      return { idx: Math.min(iw, N - 1), kind: 'nearest' };
+    }
+
+    var i = firstIndexAtOrAfter(target, function (k) { return dayOf(k); });
+    if (i < N && dayOf(i) === target) {
+      /* 同日多根（6h/8h/12h）：统一取当天【第一根】——"日线起点"。 */
+      while (i > 0 && dayOf(i - 1) === target) { i--; }
+      return { idx: i, kind: 'exact' };
+    }
+    if (target < first) {
+      return { idx: 0, kind: (weekKeyOf(target) === weekKeyOf(first)) ? 'nearest' : 'before' };
+    }
+    if (target > last) {
+      return { idx: N - 1, kind: (weekKeyOf(target) === weekKeyOf(last)) ? 'nearest' : 'after' };
+    }
+    /* 空档（周末 / 停牌日）：取前一个交易日，并回退到该日第一根。 */
+    var j = i - 1;
+    while (j > 0 && dayOf(j - 1) === dayOf(j)) { j--; }
+    return { idx: j, kind: 'nearest' };
+  }
+
   /* 'YYYY-MM-DD' 或 'YYYY-MM-DD HH:MM' -> 毫秒时间戳 */
   function parseStamp(s) {
     s = String(s || '').trim();
@@ -2191,11 +2336,15 @@ footer{margin-top:14px;padding-top:10px}
   function clampView() {
     st.count = Math.round(clamp(st.count, 20, N));
     /* 完全自由的横向平移（与 TradingView 一致）：
-         · 向左：仍限制在 0，避免整屏滑空看不到任何数据
+         · 向左：允许最多【半屏】留白（start 可到 -count/2）。
+           ★ 2026-11-15 从"下限 0"放宽：「前往到」要求任何一根都能居中，
+             而最早那根居中时，左侧必然需要半屏空白 —— 卡在 0 就做不到。
+             TradingView 同样允许把最早的数据拖到屏幕中间甚至右边。
+             再往左拖也没有更多数据可看，半屏是够用且不失控的界限。
          · 向右：不设上限，可以把最新数据拖到画面任意位置（含最左）
        之所以要能一直往右拖：看盘时重点是"最新"，把它拖到屏幕中间
        甚至左边，右侧留白给后续走势预判，是常见的看图习惯。 */
-    st.start = Math.max(0, st.start);
+    st.start = Math.max(-st.count / 2, st.start);
 
     /* ★★ 视图快贴到【最左端】时通知外部补历史（2026-10-20，懒加载）。
        ★ 为什么在这里：所有平移/缩放/跳转最终都经过 clampView，
@@ -5762,8 +5911,11 @@ footer{margin-top:14px;padding-top:10px}
          ★ 为什么必须校验：存档里的 start/count 可能来自另一个品种
            （或另一个周期，bar 数不同）。直接套用会算出空区间 → 白板。
          策略：明显越界的直接拒绝，回到默认视图。 */
+      /* ★ 允许负 start（2026-11-15）：左侧留白是「最早一根居中」的前提；
+         下限不在这里定，交给 clampView（-count/2）。
+         仍要求 start < N：越界到数据末尾之外的存档值照旧拒绝。 */
       var okStart = (start !== undefined && start !== null
-                     && isFinite(start) && start >= 0 && start < N);
+                     && isFinite(start) && start >= -1e6 && start < N);
       var okCount = (count !== undefined && count !== null
                      && isFinite(count) && count >= 20);
       if (!okStart && !okCount) { return; }        /* 两个都无效：不动 */
@@ -6111,6 +6263,59 @@ footer{margin-top:14px;padding-top:10px}
     /* 读当前视图区间（供布局存档用） */
     getView: function () {
       return { start: Math.round(st.start), count: Math.round(st.count) };
+    },
+    /* ★★「前往到」：按日期把目标 K 线放到屏幕中间（2026-11-15）。
+       - dateRange / centerDate 供弹窗填默认值与范围提示；
+       - gotoDate 是唯一跳转入口，只接受【已加载数据范围内】的日期
+         （越界由 UI 明确提示，不做"悄悄夹到边界"——那会让人以为跳错了）；
+       - 居中公式：X(i)=padL+(i-start+0.5)*bw ⇒ start = idx - count/2 + 0.5。
+         idx 太靠左时 start 会被 clamp 到 0，此时物理上无法居中
+         （与 TradingView 一致），返回值里用 centered 标出。 */
+    dateRange: function () {
+      if (!N) { return { first: '', last: '', tf: '' }; }
+      return { first: dayOf(0), last: dayOf(N - 1), tf: tfOf() };
+    },
+    /* 当前视图中心那根 bar 的日期（弹窗默认值）。
+       中心落在右侧留白（未来区）时，退回最后一根真实数据。 */
+    centerDate: function () {
+      if (!N) { return ''; }
+      var i = Math.round(st.start + st.count / 2 - 0.5);
+      return dayOf(clamp(i, 0, N - 1));
+    },
+    /* 只查不跳（测试/排查用）：返回 { idx, kind } */
+    findDateIndex: function (d) {
+      return locateDate(String(d || '').trim());
+    },
+    gotoDate: function (d) {
+      var s = String(d || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        return { ok: false, reason: N ? 'bad' : 'empty' };
+      }
+      var f = locateDate(s);
+      if (f.idx < 0) { return { ok: false, reason: 'empty' }; }
+      if (f.kind === 'before') {
+        return { ok: false, reason: 'before', first: dayOf(0), last: dayOf(N - 1) };
+      }
+      if (f.kind === 'after') {
+        return { ok: false, reason: 'after', first: dayOf(0), last: dayOf(N - 1) };
+      }
+      /* 目标居中：iAt(绘图区中心) === idx ⇒ start = idx - count/2 + 0.5
+         ★ 可以是负数（左侧留白）—— 最早那根也能真正居中，
+           clampView 的下限是 -count/2，不会滑空。
+         ★ 先按 N 收敛 count：极少数情况下（刚补完历史、N 变小）count
+           还停在旧值，直接用会让居中偏掉。 */
+      st.count = Math.round(clamp(st.count, 20, N));
+      st.start = Math.max(-st.count / 2, f.idx - st.count / 2 + 0.5);
+      st.lastIdx = f.idx;
+      st.hover = null;       /* 旧悬停下标指向跳转前的日期，必须清掉 */
+      clampView();
+      draw();
+      var mid = st.start + st.count / 2 - 0.5;
+      return {
+        ok: true, idx: f.idx, kind: f.kind, date: s, barDate: dayOf(f.idx),
+        start: Math.round(st.start * 100) / 100, count: Math.round(st.count),
+        centered: Math.abs(mid - f.idx) < 0.51, N: N
+      };
     },
     fit: function () { st.start = 0; st.count = N; setLock(null); draw(); },
     last: function (n) {
@@ -7531,6 +7736,11 @@ footer{margin-top:14px;padding-top:10px}
 
     return {
       key: meta.key,
+      /* ★ 周期（2026-11-15）：「前往到」要按周期语义找目标 bar ——
+         周线的时间戳标在周五，与日线/日内的"起点"口径不同。
+         引擎不认识 URL 参数，所以由调用方（viewer_boot）显式给过来。
+         ★ 报告场景没有这个字段时留空，引擎会从 key（v_<CODE>_<tf>）兜底。 */
+      tf: meta.tf || '',
       spec: spec,
       series: series,
       /* ★ 原始 bar 列表（{t,o,h,l,c,v}）。
@@ -7599,16 +7809,25 @@ footer{margin-top:14px;padding-top:10px}
        __VIEWER_APPLY_MARKET__ 会用 MARKET 校正周期下拉。 */
   /* 该品种支持哪些周期（只看代码形态，不取数）。
      ★ 判据必须与 fetchBars 的分支一致，否则会出现
-       "按 6h 去请求、但走的是不支持 6h 的接口"。 */
+       "按 6h 去请求、但走的是不支持 6h 的接口"。
+     ★★ 2026-11-15 按用户要求收窄币安：
+       只有 BTCUSDT / ETHUSDT 保留 6时 / 8时 / 12时 / 日 / 周；
+       其余币安品种只有 12时 / 日 / 周（6时、8时 对山寨币的走势噪声太大）。
+       ★ 这条规则同时决定 pickTf：非主流币的 ?tf=6h 会被拒绝并回落 12时，
+         不会出现"按 6h 取数、顶栏却没有 6时按钮"的错位。 */
   function supportedTfsFor(code) {
     var c = String(code || '').trim();
     /* 欧易：6时 12时 日 周（无 8时） */
     if (/^okx[:：]/i.test(c) || /-USDT-SWAP$/i.test(c)) {
       return ['6h', '12h', 'day', 'week'];
     }
-    /* 币安：6时 8时 12时 日 周 */
+    /* 币安：主流两个给全量，其余只给 12时 / 日 / 周 */
     if (/^binance[:：]/i.test(c) || /^[A-Za-z0-9]{2,20}USDT$/i.test(c)) {
-      return ['6h', '8h', '12h', 'day', 'week'];
+      var pair = c.replace(/^binance[:：]/i, '').toUpperCase();
+      if (pair === 'BTCUSDT' || pair === 'ETHUSDT') {
+        return ['6h', '8h', '12h', 'day', 'week'];
+      }
+      return ['12h', 'day', 'week'];
     }
     /* 期货 / A股 / 美股：日 周 */
     return ['day', 'week'];
@@ -7617,6 +7836,8 @@ footer{margin-top:14px;padding-top:10px}
   /* 该品种的默认周期。
      ★ 2026-11-10 用户要求：币安市场里只有 BTCUSDT / ETHUSDT 保持 6 时，
        其余全部默认 12 时。欧易、期货、A股、美股的行为不变。
+     ★ 2026-11-15：币安的可选周期同步收窄（supportedTfsFor）——
+       非 BTC/ETH 只有 12时/日/周，6时/8时 不再出现，默认 12 时正好落在列表内。
      ★ 为什么这里只做字符串判断，不查 CRYPTO_SYMBOLS：
        本函数在文件顶部就被 pickTf() 调用，那时 CRYPTO_SYMBOLS 的赋值
        还没执行（var 提升只有声明），读它会直接拿到 undefined。
@@ -9855,7 +10076,10 @@ footer{margin-top:14px;padding-top:10px}
 
       var meta = {
         key: 'v_' + CODE + '_' + TF,
-        title: CODE + ' · ' + TF + ' · ' + srcLabel
+        title: CODE + ' · ' + TF + ' · ' + srcLabel,
+        /* ★ 周期显式传给载荷（2026-11-15）：「前往到」按周期找 bar ——
+           周线时间戳在周五、日线/日内在起点，两者不能同一套规则。 */
+        tf: TF
       };
       /* 载荷组装在 model/chart_payload.js（图表板块的可复用核心）——
          指标计算与面板 spec 都在那边，本文件只负责"取到数据"。
@@ -9987,23 +10211,51 @@ footer{margin-top:14px;padding-top:10px}
       }
       if (!olderFn) { olderDone = true; }   /* 该市场没有"更早"可翻 */
 
-      window.__VIEWER_ON_REACH_LEFT__ = function () {
-        if (olderBusy || olderDone || !olderFn) { return; }
+      /* ★★ 取更早一批（2026-11-15 抽成【可等待的 Promise】）
+         两个调用方共用同一条通道：
+           · 引擎 clampView：拖到最左端自动补（__VIEWER_ON_REACH_LEFT__）
+           · 「前往到」：目标日期早于已加载起点时循环补（__VIEWER_FETCH_OLDER__）
+         ★ 必须共用 in-flight Promise：两条路径各自发一页会让同一段数据
+           重复拼接；「前往到」等待的正是"当前这批完成"。
+         返回 {added, exhausted, error}；added=0 表示没有更多（或失败）。
+         ★ 失败即锁死（olderDone=true），与旧行为一致 —— 避免反复打接口。 */
+      var olderInFlight = null;
+
+      function fetchOlderOnce() {
+        if (olderDone || !olderFn) {
+          return Promise.resolve({ added: 0, exhausted: true, done: true });
+        }
+        if (olderInFlight) { return olderInFlight; }
+
         var cur = window.__DIV_DATA__;
-        if (!cur) { return; }
+        if (!cur) { return Promise.resolve({ added: 0, exhausted: true, done: true }); }
         var ser = cur.series || cur;
         var dts = ser.d || [];
-        if (!dts.length) { return; }
+        if (!dts.length) {
+          return Promise.resolve({ added: 0, exhausted: true, done: true });
+        }
 
         olderBusy = true;
         var oldStart = (window.DIVCHART && DIVCHART.getView)
           ? DIVCHART.getView().start : 0;
         var oldestT = dts[0];
 
-        olderFn(oldestT).then(function (more) {
+        var p;
+        try {
+          p = olderFn(oldestT);
+        } catch (e) {
+          olderBusy = false; olderDone = true;
+          return Promise.resolve({ added: 0, exhausted: true, done: true, error: true });
+        }
+
+        olderInFlight = p.then(function (more) {
           olderBusy = false;
-          if (!more || !more.length) { olderDone = true; return; }
-          if (more.__exhausted) { olderDone = true; }
+          if (!more || !more.length) {
+            olderDone = true;
+            return { added: 0, exhausted: true, done: true };
+          }
+          var exhausted = !!more.__exhausted;
+          if (exhausted) { olderDone = true; }
 
           /* 现有 series 还原成 bars，与新的一页拼接 */
           var n = dts.length, bars = [];
@@ -10024,12 +10276,16 @@ footer{margin-top:14px;padding-top:10px}
           });
           /* 顺序校验：宁可丢掉这批，也不要画出反向的图 */
           for (var q = 1; q < merged.length; q++) {
-            if (parseStamp(merged[q].t) < parseStamp(merged[q - 1].t)) { return; }
+            if (parseStamp(merged[q].t) < parseStamp(merged[q - 1].t)) {
+              olderDone = true;
+              return { added: 0, exhausted: true, done: true, error: true };
+            }
           }
 
           var added = merged.length - n;
           window.__DIV_DATA__ = window.ChartPayload.build(merged, {
-            key: cur.key, title: cur.title
+            key: cur.key, title: cur.title,
+            tf: cur.tf || TF       /* 补数据后重建载荷，周期字段不能丢 */
           });
           if (window.DIVCHART && DIVCHART.loadPayload) {
             DIVCHART.loadPayload(window.__DIV_DATA__);
@@ -10047,10 +10303,30 @@ footer{margin-top:14px;padding-top:10px}
             info.textContent = info.textContent.replace(/\d+ 根/,
               merged.length + ' 根');
           }
+          if (added <= 0) { olderDone = true; }
+          return { added: added, exhausted: exhausted,
+                   done: exhausted || added <= 0 };
         }).catch(function () {
           olderBusy = false;
           olderDone = true;      /* 失败就停，避免反复重试打接口 */
+          return { added: 0, exhausted: true, done: true, error: true };
+        }).then(function (r) {
+          olderInFlight = null;
+          return r;
         });
+        return olderInFlight;
+      }
+
+      /* 「前往到」用：取一批（已在取就等同一批） */
+      window.__VIEWER_FETCH_OLDER__ = function () { return fetchOlderOnce(); };
+      /* 还有没有更早的可取（没到底 / 该市场支持翻页） */
+      window.__VIEWER_HAS_OLDER__ = function () {
+        return !olderDone && !!olderFn;
+      };
+      /* 引擎拖到最左端时调用；失败由 fetchOlderOnce 内部处理，不抛错 */
+      window.__VIEWER_ON_REACH_LEFT__ = function () {
+        if (olderDone || !olderFn) { return; }
+        fetchOlderOnce();
       };
 
       /* ★★ 引擎起来后立刻补做页面接线（2026-10-20 修）。
@@ -11143,7 +11419,10 @@ footer{margin-top:14px;padding-top:10px}
        币安真正生效的默认周期按品种算（2026-11-10 用户要求）：
          BTCUSDT / ETHUSDT -> 6时，其余币安品种 -> 12时。
        规则只定义在 viewer_boot.js 的 defaultTfFor()，
-       这里经 __VIEWER_DEFAULT_TF__ 取，见 __VIEWER_APPLY_MARKET__。 */
+       这里经 __VIEWER_DEFAULT_TF__ 取，见 __VIEWER_APPLY_MARKET__。
+       ★★ 2026-11-15：币安的 tfs 是【最大集】。只有 BTCUSDT/ETHUSDT 全给；
+          其余币安品种在 __VIEWER_APPLY_MARKET__ 里收窄成 12时/日/周，
+          与 viewer_boot.js 的 supportedTfsFor() 逐条一致。 */
     binance: { label: '币安合约', tfs: ['6h', '8h', '12h', 'day', 'week'],
                def: '6h' },
     okx:     { label: '欧易合约', tfs: ['6h', '12h', 'day', 'week'],
@@ -11268,40 +11547,67 @@ footer{margin-top:14px;padding-top:10px}
        没有 tf 时留空，等 __VIEWER_APPLY_MARKET__ 按 MARKET 填默认值。 */
   var CUR_TF = (qs.get('tf') || '');
 
-  /* 按 MARKET 重填周期下拉。由 boot 在取数成功后调用。
+  /* 按 MARKET 重填周期分段按钮。由 boot 在取数成功后调用。
      ★ 2026-11-10：参数 code 由 boot 传入。币安的默认周期取决于具体品种，
        不能只看市场；规则统一放在 viewer_boot.js 的 defaultTfFor()，
-       这里通过 __VIEWER_DEFAULT_TF__ 取，避免两处各写一套。 */
+       这里通过 __VIEWER_DEFAULT_TF__ 取，避免两处各写一套。
+     ★ 2026-11-15：下拉改平铺。只渲染该数据源支持的周期（不摆灰项），
+       当前周期加 .on。 */
   window.__VIEWER_APPLY_MARKET__ = function (code) {
     if (!tfSel) { return; }
     var def = marketDef();
+    var c = code || (codeEl ? codeEl.value : '') || qs.get('code') || '';
+
+    /* ★★ 币安按品种收窄周期（2026-11-15 用户要求）：
+       只有 BTCUSDT / ETHUSDT 保留 6时 / 8时 / 12时 / 日 / 周；
+       其余币安品种只显示 12时 / 日 / 周。
+       ★ 这条规则必须与 viewer_boot.js 的 supportedTfsFor() 完全一致，
+         否则会出现"顶栏显示 6时、但 URL 带 tf=6h 被 boot 拒掉"的错位。
+       ★ 在 def.tfs 的副本上裁剪，不改全局 MARKET_DEFS —— 切回 BTC 时要恢复全量。 */
+    var tfs = def.tfs;
+    if (window.__VIEWER_MARKET__ === 'binance') {
+      var pair = String(c || '').replace(/^binance[:：]/i, '').toUpperCase();
+      if (pair !== 'BTCUSDT' && pair !== 'ETHUSDT') {
+        tfs = ['12h', 'day', 'week'];
+      }
+    }
+
     /* 没有指定周期时用该数据源的默认周期 */
     var defTf = def.def;
     if (window.__VIEWER_MARKET__ === 'binance'
         && typeof window.__VIEWER_DEFAULT_TF__ === 'function') {
-      var c = code || (codeEl ? codeEl.value : '') || qs.get('code') || '';
       try {
         var t0 = window.__VIEWER_DEFAULT_TF__(c);
-        if (t0 && def.tfs.indexOf(t0) >= 0) { defTf = t0; }
+        if (t0 && tfs.indexOf(t0) >= 0) { defTf = t0; }
       } catch (e) { }
     }
-    if (!CUR_TF || def.tfs.indexOf(CUR_TF) < 0) { CUR_TF = defTf; }
+    if (!CUR_TF || tfs.indexOf(CUR_TF) < 0) { CUR_TF = defTf; }
 
     var html = '';
     for (var i = 0; i < TF_DEFS.length; i++) {
       var d = TF_DEFS[i];
-      if (def.tfs.indexOf(d.v) < 0) { continue; }
-      html += '<option value="' + d.v + '"'
-        + (d.v === CUR_TF ? ' selected' : '') + '>'
-        + d.short + '</option>';
+      if (tfs.indexOf(d.v) < 0) { continue; }
+      var sel = (d.v === CUR_TF);
+      html += '<button type="button" class="vk-tfbtn' + (sel ? ' on' : '') + '"'
+        + ' data-tf="' + d.v + '" title="' + d.full + '"'
+        + ' aria-pressed="' + (sel ? 'true' : 'false') + '">'
+        + d.short + '</button>';
     }
     tfSel.innerHTML = html;
   };
 
-  /* 周期切换：改 URL 重载（切周期要重新取数，不能本地聚合）。 */
+  /* 周期切换：点分段按钮 → 改 URL 重载（切周期要重新取数，不能本地聚合）。
+     ★ 用事件委托：按钮是 __VIEWER_APPLY_MARKET__ 重建的，
+       逐个绑会漏掉重填后的新节点。 */
   if (tfSel) {
-    tfSel.addEventListener('change', function () {
-      var want = tfSel.value;
+    tfSel.addEventListener('click', function (e) {
+      var b = e.target;
+      while (b && b !== tfSel
+             && !(b.getAttribute && b.getAttribute('data-tf'))) {
+        b = b.parentNode;
+      }
+      if (!b || b === tfSel) { return; }
+      var want = b.getAttribute('data-tf');
       if (!want || want === CUR_TF) { return; }
       var q = new URLSearchParams();
       var raw = (codeEl ? codeEl.value : '') || (qs.get('code') || '600519');
@@ -11357,7 +11663,7 @@ footer{margin-top:14px;padding-top:10px}
        ★ 用户要求：换品种就回到新品种的默认周期
            （币安 BTC/ETH 6时、其余币安品种 12时；欧易 6时；其余 日）。
          所以这里【不传 tf】，让 boot 的 pickTf() 按新品种算默认值。
-       ★ 手动切周期不走这里 —— 那是 tfSel 的 change 分支，
+       ★ 手动切周期不走这里 —— 那是 tfSel 的点击分支（点分段按钮），
          它会显式写 tf，属于"同一品种内换周期"，逻辑不同。 */
     var bars = qs.get('bars');   /* 保留可选覆盖项 */
     if (bars) { q.set('bars', bars); }
@@ -12463,6 +12769,211 @@ footer{margin-top:14px;padding-top:10px}
   if (cloudBtn) { cloudBtn.addEventListener('click', cloudMenu); }
   /* ★ 启动时先刷一次绿点（localStorage 里可能已有连接） */
   try { refreshCloudDot(); } catch (e) { }
+
+  /* ---------- 前往到：按日期跳到目标 K 线并居中（2026-11-15） ----------
+     ★ 入口只有快捷键 Alt+G（按用户要求，2026-11-15 删掉顶栏按钮）。
+     ★ 输入日期一律按【日线日期】解释，与当前周期无关：
+         · 6h / 8h / 12h：落到该日第一根（当天起点）
+         · 日线：就是该日那根
+         · 周线：落到包含该日的那一周（周线时间戳标在周五，不能按日期相等匹配）
+       具体找哪一根、怎么居中全在引擎 gotoDate / locateDate 里，
+       这段只负责"问日期 + 显示结果"，不碰数据。
+     ★ 为什么弹窗每次打开都重填【视图中心】的日期：
+       TradingView 的「前往到」也以当前视图为起点 —— 记住上次输入会让
+       连续两次跳转变得莫名其妙。 */
+  var gotoModal = $('dc-goto');
+  var gotoDateEl = $('gt-date');
+  var gotoHintEl = $('gt-hint');
+  var gotoRangeEl = $('gt-range');
+  var gotoOkEl = $('gt-ok');
+  var gotoCancelEl = $('gt-cancel');
+  var gotoXEl = $('gt-x');
+
+  function gotoHint(text, isErr) {
+    if (!gotoHintEl) { return; }
+    gotoHintEl.textContent = text;
+    gotoHintEl.classList.toggle('err', !!isErr);
+  }
+  function gotoClearErr() {
+    if (gotoHintEl) { gotoHintEl.classList.remove('err'); }
+  }
+  function gotoDefaultHint(isWeek) {
+    return isWeek
+      ? '按 ISO 周对齐：跳到包含该日的那根周线，并居中显示'
+      : '跳到该日第一根 K 线，并让它位于屏幕中间';
+  }
+
+  /* ★ 自动补历史的状态（2026-11-15）。
+     gotoRun：每次打开/关闭自增；正在等待的 Promise 回调靠它判断"已作废"，
+              避免关掉弹窗后还在背后连着请求。
+     gotoBusy：一批在飞时挡住重复提交（按钮保持可点，只是不响应）。 */
+  var gotoRun = 0;
+  var gotoBusy = false;
+
+  function openGoto() {
+    var C = window.DIVCHART;
+    if (!gotoModal) { return; }
+    gotoRun++;                 /* 作废上一轮还没结束的加载 */
+    gotoBusy = false;
+    /* 数据还没回来也要给反馈：快捷键不像按钮有置灰态，静默无反应最糟。 */
+    if (!C || !C.gotoDate) {
+      gotoModal.classList.add('show');
+      gotoModal.setAttribute('aria-hidden', 'false');
+      if (gotoRangeEl) { gotoRangeEl.textContent = ''; }
+      gotoHint('图表正在加载，请稍候再按 Alt+G', true);
+      return;
+    }
+    var r = C.dateRange ? C.dateRange() : null;
+    var isWeek = !!(r && r.tf === 'week');
+    if (gotoRangeEl) {
+      gotoRangeEl.textContent = (r && r.first)
+        ? '数据范围 ' + r.first + ' ~ ' + r.last
+        : '';
+    }
+    if (gotoDateEl && r && r.first) {
+      gotoDateEl.min = r.first;
+      gotoDateEl.max = r.last;
+    }
+    if (gotoDateEl) {
+      var d = (C.centerDate && C.centerDate()) || (r && r.last) || '';
+      gotoDateEl.value = d;
+    }
+    gotoHint(gotoDefaultHint(isWeek), false);
+    gotoModal.classList.add('show');
+    gotoModal.setAttribute('aria-hidden', 'false');
+    try { gotoDateEl.focus(); } catch (e) { }
+  }
+
+  /* 关掉弹窗后把焦点还给图表：日期框隐藏后若还拿着焦点，
+     方向键 / A 键这些画布快捷键会全部失灵。 */
+  function focusChart() {
+    var w = document.getElementById('dc-wrap');
+    if (!w) { return; }
+    try { w.focus({ preventScroll: true }); }
+    catch (e) { try { w.focus(); } catch (e2) { } }
+  }
+
+  function closeGoto() {
+    if (!gotoModal) { return; }
+    gotoRun++;                 /* 关闭即作废正在补历史的循环 */
+    gotoBusy = false;
+    gotoModal.classList.remove('show');
+    gotoModal.setAttribute('aria-hidden', 'true');
+    focusChart();
+  }
+
+  /* 跳到目标日期；若它【早于已加载的起点】，先自动往前补历史再重试。
+     ★ 为什么放在这一段而不是引擎：取数归 viewer 层（引擎只管已加载的数据）。
+       接力点是 boot 暴露的 __VIEWER_FETCH_OLDER__（返回 Promise<{added}>）。
+     ★ 每批最多 30 次：加密 6h 首屏 1500 根≈1 年，补到 2019 约 6 批，
+       30 是防死循环的硬闸，不是常规路径。 */
+  function submitGoto() {
+    var C = window.DIVCHART;
+    if (gotoBusy) { return; }
+    if (!C || !C.gotoDate) {
+      gotoHint('图表还没加载完成，请稍候再试', true);
+      return;
+    }
+    var v = gotoDateEl ? gotoDateEl.value : '';
+    if (!v) {
+      gotoHint('请先选择日期', true);
+      return;
+    }
+    var run = gotoRun;
+    var tries = 0;
+
+    function stopped() { return run !== gotoRun; }
+
+    function attempt() {
+      if (stopped()) { return; }
+      var r = C.gotoDate(v);
+      if (r && r.ok) {
+        gotoBusy = false;
+        closeGoto();
+        return;
+      }
+      if (r && r.reason === 'before') {
+        var canFetch = (typeof window.__VIEWER_FETCH_OLDER__ === 'function')
+          && (typeof window.__VIEWER_HAS_OLDER__ !== 'function'
+              || window.__VIEWER_HAS_OLDER__());
+        if (!canFetch || tries >= 30) {
+          gotoBusy = false;
+          gotoHint('早于最早数据（' + r.first + '），没有更早的 K 线可加载', true);
+          return;
+        }
+        tries++;
+        gotoBusy = true;
+        gotoHint('正在加载更早数据…（第 ' + tries + ' 批）', false);
+        var p;
+        try { p = window.__VIEWER_FETCH_OLDER__(); }
+        catch (e) {
+          gotoBusy = false;
+          gotoHint('加载更早数据失败，请稍后重试', true);
+          return;
+        }
+        p.then(function (res) {
+          if (stopped()) { return; }
+          if (res && res.added > 0) { attempt(); return; }
+          gotoBusy = false;
+          var r2 = C.gotoDate(v);
+          if (r2 && r2.ok) { closeGoto(); return; }
+          var first = (C.dateRange && C.dateRange().first) || r.first;
+          gotoHint((res && res.error ? '加载更早数据失败' : '已到最早数据（' + first + '）')
+                   + '，目标日期更早，无法跳转', true);
+        }).catch(function () {
+          if (stopped()) { return; }
+          gotoBusy = false;
+          gotoHint('加载更早数据失败，请稍后重试', true);
+        });
+        return;
+      }
+      gotoBusy = false;
+      if (r && r.reason === 'after') {
+        gotoHint('晚于最新数据（' + r.last + '），请选早一些的日期', true);
+      } else {
+        gotoHint('图表还没有数据，暂时不能跳转', true);
+      }
+    }
+    attempt();
+  }
+
+  /* ★ 入口：Alt+G（2026-11-15 按用户要求，顶栏不放按钮）。
+     · 在输入框 / 白板里打字时不抢键（写 g 不应该弹窗）
+     · 弹窗已经打开时不再重开（否则会把用户刚输入的日期重置掉）
+     · e.code 兜底：按住 Alt 时，部分键盘布局的 e.key 不是 'g' */
+  function isTypingEl(el) {
+    if (!el) { return false; }
+    var t = (el.tagName || '').toLowerCase();
+    return t === 'input' || t === 'textarea' || t === 'select' || el.isContentEditable;
+  }
+  document.addEventListener('keydown', function (e) {
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) { return; }
+    if (e.key !== 'g' && e.key !== 'G' && e.code !== 'KeyG') { return; }
+    if (isTypingEl(e.target)) { return; }
+    if (gotoModal && gotoModal.classList.contains('show')) { return; }
+    e.preventDefault();
+    openGoto();
+  });
+
+  if (gotoOkEl) { gotoOkEl.addEventListener('click', submitGoto); }
+  if (gotoCancelEl) { gotoCancelEl.addEventListener('click', closeGoto); }
+  if (gotoXEl) { gotoXEl.addEventListener('click', closeGoto); }
+  if (gotoModal) {
+    /* 点遮罩关闭；Escape 只在本面板内生效，不去干扰 FIB 弹窗的键 */
+    gotoModal.addEventListener('click', function (e) {
+      if (e.target === gotoModal) { closeGoto(); }
+    });
+    gotoModal.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); closeGoto(); }
+    });
+  }
+  if (gotoDateEl) {
+    gotoDateEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submitGoto(); return; }
+      gotoClearErr();                       /* 改日期就把红字清掉 */
+    });
+    gotoDateEl.addEventListener('change', gotoClearErr);
+  }
 
   /* ★★ 「◈ 策略」整块已删除（2026-10-20）。
      删掉的内容：DATA_DIR / dataGet / annOfEvent / fibOfEvent /
