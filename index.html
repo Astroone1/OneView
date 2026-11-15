@@ -1371,7 +1371,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-15 18:40
+生成：2026-11-15 21:56
 </div>
 </footer>
 
@@ -7115,10 +7115,33 @@ footer{margin-top:14px;padding-top:10px}
   }
   function saveWhiteboard() {
     /* ★ 防抖：每次按键都写 localStorage 会卡（与 clampView 的理由相同）。
-       停手 400ms 再写，足够避开输入过程的抖动。 */
+       停手 400ms 再写，足够避开输入过程的抖动。
+       ★ 但防抖有窗口期（2026-11-15 修）：刷新 / 切周期 / 关标签页都可能在
+         这 400ms 内发生，那一下内容就丢了。所以下面补了 pagehide、
+         visibilitychange、beforeunload 三个兜底 —— 它们调 wbFlush 立即写。 */
     clearTimeout(wbSaveTimer);
     wbSaveTimer = setTimeout(wbFlush, 400);
   }
+
+  /* ★★ 立即落盘的兜底（2026-11-15 新增）。
+     ★ 为什么是三个事件而不是一个：
+         · pagehide  —— 刷新 / 跳转 / bfcache 退出，最可靠
+         · visibilitychange(hidden) —— 切标签页、最小化、手机切 App，
+           此时可能不触发 pagehide，但内容必须已经在盘上
+         · beforeunload —— 老浏览器/某些跳转路径的补充
+     ★ 三者都调同一个 wbFlush()，它自己幂等（内容没变就重写一遍，
+       代价是一次 localStorage 写入，远小于丢内容）。 */
+  function flushOnLeave() {
+    clearTimeout(wbSaveTimer);
+    wbFlush();
+  }
+  window.addEventListener('pagehide', flushOnLeave);
+  window.addEventListener('beforeunload', flushOnLeave);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') { flushOnLeave(); }
+  });
+  /* ★ 切周期/换品种是 location.search 赋值 -> 整页重载，
+     同样落在 pagehide 上，无需额外处理（实测已验证）。 */
 
   function loadWhiteboard() {
     try {
@@ -7204,24 +7227,39 @@ footer{margin-top:14px;padding-top:10px}
   if (bEdit) { bEdit.addEventListener('click', function () { showEdit(true); }); }
   if (bView) { bView.addEventListener('click', function () { showEdit(false); }); }
 
-  /* ---------------- 工具栏 ---------------- */
-  function surround(before, after, ph) {
-    var s = ta.selectionStart, e = ta.selectionEnd;
-    var sel = ta.value.slice(s, e) || ph || '';
-    ta.setRangeText(before + sel + (after === undefined ? before : after), s, e, 'end');
+  /* ---------------- 工具栏 ----------------
+     ★★ 每个按钮改完内容都要【显式 saveWhiteboard()】（2026-11-15 修）。
+        setRangeText 只改 value，【不触发 input 事件】，
+        所以监听 input 的那条路径覆盖不到它们 ——
+        用户点「H / 加粗 / 列表 / 引用 / 代码 / 分隔线」后立刻刷新就会丢。
+     实现上把「改完 + 落盘」收成一个 saveRange() 包装，避免逐个漏写。 */
+  function saveRange(apply) {
+    /* ★ 顺序刻意与原实现一致：先 focus，再改内容与选区，最后落盘。
+       （原代码是 setRangeText -> focus -> setSelectionRange，
+         而 setRangeText 不影响焦点，因此先 focus 等价、且光标不会丢。） */
     ta.focus();
-    if (s === e) { ta.setSelectionRange(s + before.length, s + before.length + sel.length); }
+    apply();
+    saveWhiteboard();          /* 走同一个 400ms 防抖，不额外加压力 */
+  }
+  function surround(before, after, ph) {
+    saveRange(function () {
+      var s = ta.selectionStart, e = ta.selectionEnd;
+      var sel = ta.value.slice(s, e) || ph || '';
+      ta.setRangeText(before + sel + (after === undefined ? before : after), s, e, 'end');
+      if (s === e) { ta.setSelectionRange(s + before.length, s + before.length + sel.length); }
+    });
   }
   function prefixLine(prefix) {
-    var s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
-    var ls = v.lastIndexOf('\n', s - 1) + 1;
-    var le = v.indexOf('\n', e); if (le < 0) { le = v.length; }
-    var re = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    var res = v.slice(ls, le).split('\n').map(function (l) {
-      return re.test(l) ? l : prefix + l;
+    saveRange(function () {
+      var s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+      var ls = v.lastIndexOf('\n', s - 1) + 1;
+      var le = v.indexOf('\n', e); if (le < 0) { le = v.length; }
+      var re = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      var res = v.slice(ls, le).split('\n').map(function (l) {
+        return re.test(l) ? l : prefix + l;
+      });
+      ta.setRangeText(res.join('\n'), ls, le, 'end');
     });
-    ta.setRangeText(res.join('\n'), ls, le, 'end');
-    ta.focus();
   }
   function bind(id, fn) {
     var el = document.getElementById(id);
@@ -7234,8 +7272,9 @@ footer{margin-top:14px;padding-top:10px}
   bind('wb-quote', function () { prefixLine('> '); });
   bind('wb-code', function () { surround('`', '`', '代码'); });
   bind('wb-rule', function () {
-    ta.setRangeText('\n---\n', ta.selectionStart, ta.selectionEnd, 'end');
-    ta.focus();
+    saveRange(function () {
+      ta.setRangeText('\n---\n', ta.selectionStart, ta.selectionEnd, 'end');
+    });
   });
 
   /* ---------------- 导出 HTML ---------------- */
