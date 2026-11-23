@@ -1008,8 +1008,21 @@ footer{margin-top:14px;padding-top:10px}
 .vk-info{font-size:var(--fs-table);color:#64748b;
  font-variant-numeric:tabular-nums;display:block;margin:0 0 6px;
  white-space:normal;word-break:break-all}
-.vk-status{display:none;margin:0 0 10px;padding:9px 12px;border-radius:9px;
- font-size:var(--fs-body);background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+/* ---------- 取数状态：只用于【失败】提示（★ 2026-11-23 重做） ----------
+   旧样式是块级元素插在 .wrap 最前，显示时把整页顶下去 58.89px
+   （实测：状态条自身 48.89px + 下边距 10px），消失又弹回 ——
+   用户看到的"图标发生位移再复位"就是它。
+   ★ 现在改成 fixed 浮层：不占文档流，出现/消失都不动任何元素。
+   ★★ 正常加载时【不显示任何文字】（按用户要求 2026-11-23）：
+      切换本身很快，加一行"正在取数"既顶开布局又是重复提醒。
+   ★ 失败提示放左上角、不居中：不挡图，用户能边看图边看原因。 */
+.vk-status{position:fixed;left:12px;top:12px;z-index:400;
+ display:none;max-width:min(520px,calc(100vw - 40px));
+ margin:0;padding:8px 13px;border-radius:9px;
+ font-size:var(--fs-body);line-height:1.5;
+ background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;
+ box-shadow:0 6px 20px rgba(15,23,42,.14);
+ pointer-events:none}
 .vk-status.err{background:#fef2f2;color:#b91c1c;border-color:#fecaca}
 </style></head><body><div class="wrap">
 <div id="vk-status" class="vk-status"></div>
@@ -1371,7 +1384,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-16 00:18
+生成：2026-11-23 11:02
 </div>
 </footer>
 
@@ -8438,6 +8451,10 @@ footer{margin-top:14px;padding-top:10px}
 
   var $status = document.getElementById('vk-status');
 
+  /* 状态条：★ 2026-11-23 改为 fixed 浮层（不再顶开下方内容）。
+     第二个参数表示"这是一次失败"，用红色样式；传空消息即收起。
+     ★★ 加载中【不调用它】：切换很快，多一行"正在取数"既顶开布局
+        又是重复提醒（用户明确要求删掉）。它现在只用于失败提示。 */
   function setStatus(msg, isErr) {
     if (!$status) { return; }
     $status.textContent = msg || '';
@@ -10187,7 +10204,9 @@ footer{margin-top:14px;padding-top:10px}
   function main() {
     /* 不写死哪家数据源：多条线会自动切换，写死会误导。
        实际用了哪条，取数完成后显示在右侧信息栏里。 */
-    setStatus('正在取数：' + CODE + ' ' + TF + ' …');
+    /* ★ 加载中【不出任何提示】（2026-11-23 按用户要求）：
+       切换本身很快，顶一行"正在取数"会把整页顶开、再弹回，
+       视觉上比等待本身更明显。所以加载态完全静默，只有失败才提示。 */
     fetchBars(CODE, TF).then(function (bars) {
       if (!bars || !bars.length) { throw new Error('没有取到数据'); }
 
@@ -10249,7 +10268,7 @@ footer{margin-top:14px;padding-top:10px}
         try { window.__VIEWER_ON_META__(window.__VIEWER_CUR__); } catch (e) { }
       }
 
-      setStatus('');
+      setStatus('');    /* 保险：清掉可能残留的失败提示 */
       runEngine();
 
       /* ==================================================================
