@@ -564,6 +564,10 @@ kbd{background:#f1f5f9;border:1px solid #e2e8f0;border-bottom-width:2px;
      但高度随视口变，换台机器/换个窗口大小图就跟着变，不便对照。
      定高之后图表尺寸稳定，滚动条位置也可预期。 */
 #dc-wrap{height:590px;min-height:0}
+/* ★ A 按钮位置不做过渡（2026-11-23）：通用样式是 transition:all .14s，
+   引擎定位时按钮会从旧位置"滑"过去（实测连续 4 帧在移动）。
+   只保留颜色类的过渡（悬停/开关变色），位置变化一律瞬时生效。 */
+#dc-wrap #dc-autofit{transition:background-color .14s,border-color .14s,color .14s}
 /* ★ 白板高度 600px（2026-10-19 用户要求）。
    ★ 为什么在 CHART_CSS 里覆盖而不是改 report_css.py：
      那份是【报告通用样式】，回测报告的白板不需要 600 高
@@ -1210,6 +1214,20 @@ footer{margin-top:14px;padding-top:10px}
     <div id="dc-rsi-legend"></div>
     <div id="dc-macd-legend"></div>
     <button id="dc-autofit" class="on" title="自动居中（价格轴自适应）">A</button>
+    <script>
+    /* ★ A 按钮第一帧就到位（2026-11-23）：换周期/品种是整页重载，引擎要等取数完才定位，
+       之前按钮先落在容器角落（CSS 默认值），加载完再跳回主图右下角。
+       这里同步读引擎上次记下的位置直接套上；从没记过（首次打开）就先隐藏，
+       由引擎 layout() 定位后再显示 —— 两种情况都不会出现"先错位再跳回"。 */
+    (function () {
+      var b = document.getElementById('dc-autofit');
+      if (!b) { return; }
+      var p = null;
+      try { p = JSON.parse(localStorage.getItem('oneview_afpos') || 'null'); } catch (e) { }
+      if (p && p.b && p.r) { b.style.bottom = p.b; b.style.right = p.r; }
+      else { b.style.visibility = 'hidden'; }
+    })();
+    </script>
   </div>
 </div>
 
@@ -1384,7 +1402,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-23 11:02
+生成：2026-11-24 00:01
 </div>
 </footer>
 
@@ -2187,9 +2205,31 @@ footer{margin-top:14px;padding-top:10px}
       afEl.style.top = '';
       afEl.style.bottom = Math.round(belowPx + AF_INSET) + 'px';
       afEl.style.right = (L.padR + AF_INSET) + 'px';
+      /* 首次打开时内联脚本先把按钮藏起来了（没有记下的位置），定位完再显示 */
+      afEl.style.visibility = '';
+      /* ★ 记住最终位置（2026-11-23）：换周期/品种是整页重载，引擎要等取数完才跑，
+         这期间按钮若用 CSS 默认值就会先落在容器角落、加载完再跳回来。
+         页面 HTML 里紧跟按钮的内联脚本会在第一帧就读这个值套上去。
+         ★ 键名刻意不用 divchart: 前缀 —— 那是云同步的扫描前缀，这只是本机布局缓存。 */
+      try {
+        localStorage.setItem('oneview_afpos',
+          JSON.stringify({ b: afEl.style.bottom, r: afEl.style.right }));
+      } catch (e) { }
     }
   }
   function X(i) { return L.padL + (i - st.start + 0.5) * L.bw; }
+  /* ★ 像素对齐工具（2026-11-23，与 drawCandles 同一套规则）
+     PX()：读当前变换矩阵，返回 CSS→物理像素的缩放/平移，以及细线
+           该用的整数物理像素宽 w1 = max(1, floor(dpr))。
+     crispC(v, w)：物理像素坐标 v 处、宽 w 的线的【中心】坐标 ——
+           左缘 Math.round(v - w/2) 落在整数像素上，奇数宽中心是 .5，偶数宽是整数。
+           与 drawCandles 的影线公式一致，十字光标因此正好压在影线上。
+     用法：取 P = PX() 后 setTransform(1,0,0,1,0,0) 在物理像素里画，画完 restore。 */
+  function PX() {
+    var m = ctx.getTransform();
+    return { sx: m.a, sy: m.d, tx: m.e, ty: m.f, w1: Math.max(1, Math.floor(m.a)) };
+  }
+  function crispC(v, w) { return Math.round(v - w / 2) + w / 2; }
   function iAt(x) { return st.start + (x - L.padL) / L.bw - 0.5; }
 
   /* 图元可以画到「未来」—— 最新数据的右侧。
@@ -2506,11 +2546,21 @@ footer{margin-top:14px;padding-top:10px}
 
   /* ---------------- 边框（无网格） ---------------- */
   function drawFrame() {
-    ctx.strokeStyle = TH.frame; ctx.lineWidth = 1;
+    /* ★ 像素对齐（2026-11-23）：原先 +0.5 只在 dpr=1 时对齐；
+       125%/150% 缩放下 1 CSS 像素 ≠ 整数物理像素，边框发虚。改为物理像素里画。 */
+    var P = PX(), w = P.w1;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.strokeStyle = TH.frame; ctx.lineWidth = w;
     PANEL_SPECS.forEach(function (p) {
       var b = L.box[p.id];
-      ctx.strokeRect(L.padL + 0.5, b.t + 0.5, L.plotW, b.h);
+      var l = crispC(L.padL * P.sx + P.tx, w);
+      var r = crispC((L.padL + L.plotW) * P.sx + P.tx, w);
+      var t = crispC(b.t * P.sy + P.ty, w);
+      var bb = crispC((b.t + b.h) * P.sy + P.ty, w);
+      ctx.strokeRect(l, t, r - l, bb - t);
     });
+    ctx.restore();
     /* ★ 不再自动画柱状图面板的 0 轴虚线。
        原来这里会给 hist 面板补一条 #cbd5e1 的白色虚线（dash [4,3]），
        但 MACD 柱本身就贴着 0 轴生长、正负一目了然，那条虚线是冗余的，
@@ -2554,11 +2604,26 @@ footer{margin-top:14px;padding-top:10px}
     var a = clamp(Math.floor(st.start) - 1, 0, N - 1);
     var b = clamp(Math.ceil(st.start + st.count) + 1, 0, N - 1);
     var C = col('c');
-    var cw = Math.max(L.bw * 0.68, 1);
-    /* 影线与蜡烛边框用【同一个线宽】—— TradingView 的做法。
-       原来影线是 cw*0.14 且【不封顶】，边框是 cw*0.12 且封顶 1.4：
-       放大后影线会比边框粗好几倍（cw=27 时 3.8 vs 1.4），看着就不协调。 */
-    var lw = Math.min(Math.max(cw * 0.12, 0.7), 1.5);
+    /* ★ 像素对齐绘制（2026-11-23，对齐 TradingView / fancy-canvas 的做法）
+       旧版在 CSS 像素里画：中心 x 是小数、线宽是小数（cw*0.12）、阳线边框用
+       strokeRect 内缩 lw/2 —— 每条边都落在半个像素上，被抗锯齿成两列灰，
+       看起来"发虚、偏粗"。实测 dpr=1 时 K 线墨迹里 80% 是抗锯齿灰。
+       现在：
+         1. 切到【物理像素】坐标（取当前变换矩阵，不假设只有 dpr 缩放）；
+         2. 影线/边框宽 = max(1, floor(dpr)) 个物理像素，永远是整数；
+         3. 所有边 Math.round 到整数像素；
+         4. 实体宽度与影线宽度【同奇偶】，影线严格居中；
+         5. 不用 stroke，全部 fillRect：阳线 = 黑色外框整块 + 白色内芯。 */
+    var m = ctx.getTransform();
+    var sx = m.a, sy = m.d, tx = m.e, ty = m.f;
+    var wickW = Math.max(1, Math.floor(sx));
+    var bodyW = Math.max(wickW, Math.floor(L.bw * 0.68 * sx));
+    if ((bodyW - wickW) % 2 !== 0) { bodyW -= 1; }
+    if (bodyW < wickW) { bodyW = wickW; }
+    var border = wickW;
+    var half = (bodyW - wickW) / 2;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     for (var i = a; i <= b; i++) {
       /* 开盘价走 openAt()：平滑开启时取上一根收盘价，抹掉跳空。
          影线端点走 wickAt()：必要时外扩，保证实体不飘出影线。 */
@@ -2568,16 +2633,25 @@ footer{margin-top:14px;padding-top:10px}
       var up = c >= o;
       var fill = up ? TH.upFill : TH.dnFill;
       var line = up ? TH.upLine : TH.dnLine;
-      var x = X(i);
-      ctx.strokeStyle = line; ctx.fillStyle = fill; ctx.lineWidth = lw;
-      ctx.beginPath(); ctx.moveTo(x, Y(wk.hi)); ctx.lineTo(x, Y(wk.lo)); ctx.stroke();
-      var y1 = Y(Math.max(o, c)), y2 = Y(Math.min(o, c));
+      /* 影线左缘像素列：中心取整后再减半宽，保证宽度为整数像素 */
+      var wl = Math.round(X(i) * sx + tx - wickW / 2);
+      var bl = wl - half;
+      var wt = Math.round(Y(wk.hi) * sy + ty);
+      var wb = Math.round(Y(wk.lo) * sy + ty);
+      ctx.fillStyle = line;
+      ctx.fillRect(wl, wt, wickW, Math.max(wb - wt, 1));
+      var y1 = Math.round(Y(Math.max(o, c)) * sy + ty);
+      var y2 = Math.round(Y(Math.min(o, c)) * sy + ty);
       var bh = Math.max(y2 - y1, 1);
-      ctx.fillRect(x - cw / 2, y1, cw, bh);
-      /* 阳线在白底上必须描边才可见。线宽与影线一致。 */
-      ctx.strokeRect(x - cw / 2 + lw / 2, y1 + lw / 2,
-                     Math.max(cw - lw, 0.5), Math.max(bh - lw, 0.5));
+      /* 外框（阴线即整块实体） */
+      ctx.fillRect(bl, y1, bodyW, bh);
+      /* 阳线：内芯填白。太窄/太扁放不下内芯时保留整块墨色（TV 同此处理） */
+      if (fill !== line && bodyW > border * 2 && bh > border * 2) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(bl + border, y1 + border, bodyW - border * 2, bh - border * 2);
+      }
     }
+    ctx.restore();
   }
 
   /* ---------------- 通用副面板：step（阶梯线）/ line（折线）/ hist（柱状图） ---------------- */
@@ -2590,13 +2664,25 @@ footer{margin-top:14px;padding-top:10px}
     ctx.beginPath(); ctx.rect(L.padL, b.t, L.plotW, b.h); ctx.clip();
 
     /* 参考线（spec.guides） */
+    /* ★ 像素对齐（2026-11-23）：参考线与柱状图都在物理像素里画。
+       clip 已在上面以 CSS 坐标设好，切换变换后裁剪区域不变。 */
+    var P = PX();
+
+    /* 参考线（spec.guides）：整数物理像素宽，虚线段长按 dpr 放大 */
     (p.guides || []).forEach(function (g) {
-      var yy = Math.round(yOf(id, g.v)) + 0.5;
-      if (!isFinite(yy)) { return; }
-      ctx.strokeStyle = g.color || '#94a3b8'; ctx.lineWidth = 1;
-      ctx.setLineDash(g.dash || [5, 4]);
-      ctx.beginPath(); ctx.moveTo(L.padL, yy); ctx.lineTo(L.padL + L.plotW, yy); ctx.stroke();
-      ctx.setLineDash([]);
+      var gy = yOf(id, g.v);
+      if (!isFinite(gy)) { return; }
+      var w = P.w1;
+      var yy = crispC(gy * P.sy + P.ty, w);
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.strokeStyle = g.color || '#94a3b8'; ctx.lineWidth = w;
+      ctx.setLineDash((g.dash || [5, 4]).map(function (q) { return Math.round(q * P.sx); }));
+      ctx.beginPath();
+      ctx.moveTo(L.padL * P.sx + P.tx, yy);
+      ctx.lineTo((L.padL + L.plotW) * P.sx + P.tx, yy);
+      ctx.stroke();
+      ctx.restore();
     });
 
     var yf = function (v) { return yOf(id, v); };
@@ -2605,16 +2691,23 @@ footer{margin-top:14px;padding-top:10px}
       var arr = col(p.col);
       /* 柱宽：向 TV 的 MACD-H 靠拢 —— 柱体几乎挨着，只留很窄的缝。
          0.6 太瘦（柱间大片留白），0.74 仍偏细；取 0.86。
-         下限抬到 1.2，缩到很小时也不会细成一条线。 */
-      var cw = Math.max(L.bw * 0.86, 1.2);
-      var y0 = yOf(id, 0);
+         ★ 像素对齐：柱宽取整数物理像素，且与 K 线影线同奇偶，
+           柱子中心与上方 K 线影线落在同一列；0 轴与柱顶都取整，硬边不发虚。 */
+      var hw = Math.max(P.w1, Math.floor(L.bw * 0.86 * P.sx));
+      if ((hw - P.w1) % 2 !== 0) { hw = Math.max(P.w1, hw - 1); }
+      var y0p = Math.round(yOf(id, 0) * P.sy + P.ty);
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       for (var i = a; i <= e; i++) {
         var v = arr[i];
         if (v === undefined || v === null) { continue; }
-        var y = yf(v);
+        var yp = Math.round(yf(v) * P.sy + P.ty);
+        var cl = Math.round(X(i) * P.sx + P.tx - P.w1 / 2) - (hw - P.w1) / 2;
+        var top = Math.min(y0p, yp), hh = Math.max(Math.abs(yp - y0p), 1);
         ctx.fillStyle = v >= 0 ? (p.posColor || TH.histUp) : (p.negColor || TH.histDn);
-        ctx.fillRect(X(i) - cw / 2, Math.min(y0, y), cw, Math.max(Math.abs(y - y0), 0.6));
+        ctx.fillRect(cl, top, hw, hh);
       }
+      ctx.restore();
     } else if (p.kind === 'step') {
       (p.series || []).forEach(function (s) {
         var arr = col(s.col);
@@ -2870,7 +2963,22 @@ footer{margin-top:14px;padding-top:10px}
     if (d.type === 'hline') {
       ctx.strokeStyle = d.color || '#0f172a'; ctx.fillStyle = ctx.strokeStyle;
       var y = Y(pts[0].p);
-      ctx.beginPath(); ctx.moveTo(L.padL, y); ctx.lineTo(L.padL + L.plotW, y); ctx.stroke();
+      /* ★ 像素对齐（2026-11-23）：水平线在物理像素里画，线宽取整数物理像素，
+         纵坐标落在整数像素边界上 —— 不再糊成上下两行灰。文字仍按 CSS 坐标。 */
+      (function () {
+        var P = PX();
+        var w = Math.max(1, Math.round((d.lw || 1.6) * P.sy));
+        var yy = crispC(y * P.sy + P.ty, w);
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.lineWidth = w;
+        if (isPending || d.dash) { ctx.setLineDash([Math.round(5 * P.sx), Math.round(4 * P.sx)]); }
+        ctx.beginPath();
+        ctx.moveTo(L.padL * P.sx + P.tx, yy);
+        ctx.lineTo((L.padL + L.plotW) * P.sx + P.tx, yy);
+        ctx.stroke();
+        ctx.restore();
+      })();
       ctx.font = CF(400, 11);
       ctx.textAlign = 'left';
       ctx.fillText(fmtP(pts[0].p), L.padL + L.plotW + 5, y + 4);
@@ -2880,8 +2988,24 @@ footer{margin-top:14px;padding-top:10px}
       var rx1 = X(pts[0].i), ry1 = Y(pts[0].p), rx2 = X(pts[1].i), ry2 = Y(pts[1].p);
       var x = Math.min(rx1, rx2), y = Math.min(ry1, ry2);
       var w = Math.abs(rx2 - rx1), h = Math.abs(ry2 - ry1);
-      ctx.globalAlpha = 0.07; ctx.fillRect(x, y, w, h); ctx.globalAlpha = 1;
-      ctx.strokeRect(x, y, w, h);
+      /* ★ 像素对齐（2026-11-23）：四条边落在整数物理像素上，线宽取整数。 */
+      (function () {
+        var P = PX();
+        var lw2 = Math.max(1, Math.round((d.lw || 1.6) * P.sx));
+        var pl = crispC(x * P.sx + P.tx, lw2), pr = crispC((x + w) * P.sx + P.tx, lw2);
+        var pt = crispC(y * P.sy + P.ty, lw2), pb = crispC((y + h) * P.sy + P.ty, lw2);
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.lineWidth = lw2;
+        if (isPending || d.dash) { ctx.setLineDash([Math.round(5 * P.sx), Math.round(4 * P.sx)]); }
+        ctx.globalAlpha = 0.07;
+        ctx.fillRect(Math.round(x * P.sx + P.tx), Math.round(y * P.sy + P.ty),
+                     Math.round((x + w) * P.sx + P.tx) - Math.round(x * P.sx + P.tx),
+                     Math.round((y + h) * P.sy + P.ty) - Math.round(y * P.sy + P.ty));
+        ctx.globalAlpha = 1;
+        ctx.strokeRect(pl, pt, pr - pl, pb - pt);
+        ctx.restore();
+      })();
 
     } else if (d.type === 'fib' && pts.length >= 2) {
       /* 档位顺序：第 1 次点击 = 1 档，第 2 次点击 = 0 档（见 fibEnds 注释） */
@@ -3374,11 +3498,18 @@ footer{margin-top:14px;padding-top:10px}
     /* ---- 框内子周期 K 线：与主图同一套墨色、同一价格轴、同一根宽 ----
        从窗口起点往右画；超出可见范围的部分由 ctx.clip 裁掉。
        框比屏幕宽时（主图放得很大），可见片段自然对齐到主图坐标。 */
-    var halfW = Math.max(spBw * 0.62, 0.5) / 2;
-    var lw = Math.min(Math.max(spBw * 0.16, 0.5), 1.3);
+    /* ★ 像素对齐（2026-11-23）：框内子周期 K 线与主图 drawCandles 同一套规则 ——
+       物理像素坐标、整数影线宽、实体与影线同奇偶、全部 fillRect（阳线 = 黑框 + 白芯）。 */
+    var SP = PX();
+    var sWick = SP.w1;
+    var sBody = Math.max(sWick, Math.floor(spBw * 0.62 * SP.sx));
+    if ((sBody - sWick) % 2 !== 0) { sBody = Math.max(sWick, sBody - 1); }
+    var sHalf = (sBody - sWick) / 2;
     /* 只画落在可见区内的那几根，避免无谓的绘制 */
     var kFrom = Math.max(0, Math.floor((clipL - x0) / spBw) - 1);
     var kTo = Math.min(visCount, Math.ceil((clipR - x0) / spBw) + 1);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     for (var k = kFrom; k < kTo; k++) {
       var idx = base + drawStart + k;
       if (idx < 0 || idx >= sd.n) { continue; }
@@ -3390,17 +3521,22 @@ footer{margin-top:14px;padding-top:10px}
         continue;
       }
       var up = c >= o;
-      ctx.strokeStyle = TH.dnLine; ctx.lineWidth = lw;
-      ctx.beginPath(); ctx.moveTo(cx, Y(h)); ctx.lineTo(cx, Y(l)); ctx.stroke();
-      var yo = Y(o), yc = Y(c);
-      var bTop = Math.min(yo, yc), bh = Math.max(Math.abs(yc - yo), 0.8);
-      ctx.fillStyle = up ? TH.upFill : TH.dnFill;
-      ctx.fillRect(cx - halfW, bTop, halfW * 2, bh);
-      if (up) {
-        ctx.strokeStyle = TH.upLine; ctx.lineWidth = lw;
-        ctx.strokeRect(cx - halfW, bTop, halfW * 2, bh);
+      var wl = Math.round(cx * SP.sx + SP.tx - sWick / 2);
+      var bl = wl - sHalf;
+      var wt = Math.round(Y(h) * SP.sy + SP.ty), wb = Math.round(Y(l) * SP.sy + SP.ty);
+      ctx.fillStyle = TH.dnLine;
+      ctx.fillRect(wl, wt, sWick, Math.max(wb - wt, 1));
+      var py1 = Math.round(Y(Math.max(o, c)) * SP.sy + SP.ty);
+      var py2 = Math.round(Y(Math.min(o, c)) * SP.sy + SP.ty);
+      var pbh = Math.max(py2 - py1, 1);
+      ctx.fillStyle = up ? TH.upLine : TH.dnFill;
+      ctx.fillRect(bl, py1, sBody, pbh);
+      if (up && sBody > sWick * 2 && pbh > sWick * 2) {
+        ctx.fillStyle = TH.upFill;
+        ctx.fillRect(bl + sWick, py1 + sWick, sBody - sWick * 2, pbh - sWick * 2);
       }
     }
+    ctx.restore();
 
     /* ---- 左上角：开高低收 ----
        跟随【光标下的那根子周期 K 线】；光标不在框内时回退到该段首根。
@@ -3881,14 +4017,25 @@ footer{margin-top:14px;padding-top:10px}
     if (!st.hover || st.panning) { return; }
     var i = st.hover.i, x = X(i), y = st.hover.y;
     var lastB = L.box[PANELS[PANELS.length - 1]].b;
+    /* ★ 像素对齐（2026-11-23）：十字线在物理像素里画。竖线用与影线相同的
+       crispC 公式，正好压在 K 线影线那一列上；横线落在整数像素行。 */
+    var P = PX(), cw1 = P.w1;
+    var dsh = [Math.round(3 * P.sx), Math.round(3 * P.sx)];
     ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.strokeStyle = TH.cross; ctx.globalAlpha = 0.85;
-    ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, L.priceT); ctx.lineTo(x, lastB); ctx.stroke();
+    ctx.setLineDash(dsh); ctx.lineWidth = cw1;
+    var vx = crispC(x * P.sx + P.tx, cw1);
+    ctx.beginPath();
+    ctx.moveTo(vx, L.priceT * P.sy + P.ty); ctx.lineTo(vx, lastB * P.sy + P.ty);
+    ctx.stroke();
     /* 横线只在光标所在的那个面板内画 */
     if (panelAtY(y)) {
+      var hy = crispC(y * P.sy + P.ty, cw1);
       ctx.beginPath();
-      ctx.moveTo(L.padL, y); ctx.lineTo(L.padL + L.plotW, y); ctx.stroke();
+      ctx.moveTo(L.padL * P.sx + P.tx, hy);
+      ctx.lineTo((L.padL + L.plotW) * P.sx + P.tx, hy);
+      ctx.stroke();
     }
     ctx.setLineDash([]);
     ctx.restore();
