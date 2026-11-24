@@ -1301,9 +1301,12 @@ footer{margin-top:14px;padding-top:10px}
       </div>
     </div>
     <div class="fm-foot">
-      <select class="fm-tpl" id="fm-tpl">
-        <option value="">模板…</option>
-      </select>
+      <!-- ★ FIB 模板（2026-11-24）：下拉框 + 紧挨着的「保存」。
+           保存放在下拉框右侧、与「取消/确认」隔开：
+           · 它作用于左边这个模板，挨着放一眼就知道存到哪；
+           · 和右侧的确认/取消分开，免得把"存模板"误当成"确认这条 FIB"。 -->
+      <select class="fm-tpl" id="fm-tpl"></select>
+      <button class="fm-btn" id="fm-tplsave" type="button" title="把当前档位与选项保存到左边选中的模板">保存</button>
       <span class="fm-sp"></span>
       <button class="fm-btn" id="fm-cancel">取消</button>
       <button class="fm-btn primary" id="fm-ok">确认</button>
@@ -1402,7 +1405,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-24 11:18
+生成：2026-11-24 13:07
 </div>
 </footer>
 
@@ -5906,12 +5909,77 @@ footer{margin-top:14px;padding-top:10px}
     };
   }
 
+  /* ==================================================================
+     ★★ FIB 用户模板（2026-11-24 用户要求）
+     ==================================================================
+     ★ 之前：模板下拉是 5 个写死的预设（FIB_PRESETS），选了只是把档位
+       抄进草稿；改完再选同一个模板，又回到写死的那份 —— "设了不存"。
+     ★ 现在：固定 3 个可保存的模板【模板1】【模板2】【模板3】，
+       初始值都取扩展位那一套（0 / 0.618 / 1 / 1.618 / 2.618 / 3.618 / 4.272），
+       用户在弹窗里调好后点「保存」写回所选模板。
+     ★ 存什么：档位（数值/颜色/显隐）+ 显示价格 / 延伸 / 虚线 / 反转 / 水平线。
+       坐标不存 —— 那是某一条 FIB 的锚点，不是模板。
+     ★ 键名 'divchart:fibTpl'：走 divchart: 前缀，云同步按前缀扫描，
+       上传自动带上；下载时按 at（最后一次保存的时间）取较新的那份，
+       见 chart_view.py 的 FIB_TPL_KEY。
+     ★ at 只在【保存模板】时更新；切换当前模板（cur）不更新，
+       免得一台机器只是换了个选中项，就把另一台保存过的内容盖掉。
+     形状：{ at: 毫秒, cur: 0..2, tpls: [{name, levels:[{v,color,on}], showPrice, extend, dash, invert, hline}] } */
+  var TPL_KEY = 'divchart:fibTpl';
+  var TPL_N = 3;
+  function tplDefault(i) {
+    var base = fibStyleDefaults();
+    return {
+      name: '模板' + (i + 1),
+      levels: JSON.parse(JSON.stringify(FIB_PRESETS.ext.levels)),
+      showPrice: base.showPrice, extend: base.extend, dash: base.dash,
+      invert: base.invert, hline: base.hline
+    };
+  }
+  function readFibTpls() {
+    var obj = null;
+    try { obj = JSON.parse(localStorage.getItem(TPL_KEY) || 'null'); } catch (e) { obj = null; }
+    var out = { at: 0, cur: 0, tpls: [] };
+    if (obj && typeof obj === 'object') {
+      out.at = +obj.at || 0;
+      out.cur = Math.round(clamp(+obj.cur || 0, 0, TPL_N - 1));
+    }
+    for (var i = 0; i < TPL_N; i++) {
+      var t = obj && obj.tpls && obj.tpls[i];
+      var d = tplDefault(i);
+      if (t && t.levels && t.levels.length) {
+        d.levels = t.levels.map(function (l) {
+          return { v: l.v, color: snapPalette(l.color), on: l.on !== false };
+        });
+        d.showPrice = t.showPrice !== false;
+        d.extend = t.extend || d.extend;
+        d.dash = !!t.dash;
+        d.invert = t.invert === true;
+        d.hline = t.hline !== false;
+      }
+      out.tpls.push(d);
+    }
+    return out;
+  }
+  function writeFibTpls(o, bump) {
+    if (bump) { o.at = Date.now(); }
+    try { localStorage.setItem(TPL_KEY, JSON.stringify(o)); } catch (e) { }
+  }
+
   function load() {
     try {
       /* ---- 1) 全局 FIB 样式（优先读新键；兼容旧版存在品种存档里的那份）---- */
       var gs = localStorage.getItem(STYLE_KEY);
       if (gs) {
         st.fibStyle = _normFibStyle(JSON.parse(gs));
+      } else {
+        /* ★ 从没设过 FIB 样式（新机器 / 清过缓存）：新画的 FIB 用【当前模板】，
+           而不是写死的 TradingView 七档（2026-11-24）。 */
+        var tp = readFibTpls(), ct = tp.tpls[tp.cur];
+        st.fibStyle = _normFibStyle({
+          levels: ct.levels, showPrice: ct.showPrice, extend: ct.extend,
+          dash: ct.dash, invert: ct.invert, hline: ct.hline
+        });
       }
 
       /* ---- 2) 本品种的手绘图元 ---- */
@@ -6398,6 +6466,31 @@ footer{margin-top:14px;padding-top:10px}
       var o = {};
       for (var k in FIB_PRESETS) { o[k] = { name: FIB_PRESETS[k].name, levels: FIB_PRESETS[k].levels }; }
       return o;
+    },
+    /* ★ FIB 用户模板（2026-11-24）：读 / 存 / 记住当前选中，见 TPL_KEY 的注释 */
+    getFibTpls: function () { return readFibTpls(); },
+    saveFibTpl: function (i, style) {
+      var o = readFibTpls();
+      i = Math.round(clamp(+i || 0, 0, TPL_N - 1));
+      var t = o.tpls[i];
+      if (style.levels) {
+        t.levels = style.levels
+          .filter(function (l) { return l.v !== '' && l.v !== null && l.v !== undefined && isFinite(+l.v); })
+          .map(function (l) { return { v: +l.v, color: snapPalette(l.color), on: l.on !== false }; });
+      }
+      if (style.showPrice !== undefined) { t.showPrice = style.showPrice !== false; }
+      if (style.extend !== undefined) { t.extend = style.extend || 'none'; }
+      if (style.dash !== undefined) { t.dash = !!style.dash; }
+      if (style.invert !== undefined) { t.invert = style.invert === true; }
+      if (style.hline !== undefined) { t.hline = style.hline !== false; }
+      o.cur = i;
+      writeFibTpls(o, true);
+      return JSON.parse(JSON.stringify(t));
+    },
+    setFibTplCur: function (i) {
+      var o = readFibTpls();
+      o.cur = Math.round(clamp(+i || 0, 0, TPL_N - 1));
+      writeFibTpls(o, false);
     },
     /* 找到当前应被编辑的 FIB：
        优先选中的；没选中就退回最后一条 FIB（这样设置一定看得见效果）。 */
@@ -6896,12 +6989,17 @@ footer{margin-top:14px;padding-top:10px}
     EXTS.forEach(function (m) { h += '<option value="' + m.k + '">' + m.name + '</option>'; });
     $('#fm-extend').innerHTML = h;
   })();
-  /* 模板下拉 */
-  (function () {
-    var h = '<option value="">模板…</option>';
-    for (var k in PRESETS) { h += '<option value="' + k + '">' + PRESETS[k].name + '</option>'; }
+  /* 模板下拉（★ 2026-11-24：固定 3 个可保存的用户模板，取代原来 5 个写死的预设）
+     下拉框始终显示【当前模板】，不再选完复位成「模板…」——
+     旁边的「保存」存的就是下拉框里这一个，用户必须看得见存到哪。 */
+  function renderTplSelect() {
+    var o = C.getFibTpls();
+    var h = '';
+    o.tpls.forEach(function (t, i) { h += '<option value="' + i + '">' + t.name + '</option>'; });
     $('#fm-tpl').innerHTML = h;
-  })();
+    $('#fm-tpl').value = String(o.cur);
+  }
+  renderTplSelect();
 
   /* ---- 标签页 ---- */
   document.querySelectorAll('.fm-tab').forEach(function (t) {
@@ -7050,6 +7148,8 @@ footer{margin-top:14px;padding-top:10px}
     if (!draft.levels || !draft.levels.length) { draft.levels = clone(PRESETS.screen.levels); }
     if (draft.extend === undefined) { draft.extend = 'none'; }
     snapshot = clone(draft);
+    /* ★ 每次打开都重读模板：云同步下载后不刷新页面也能看到新模板 */
+    renderTplSelect();
     renderLevels(); renderOpts(); renderCoords();
     $('#dc-modal').classList.add('show');
   }
@@ -7172,13 +7272,38 @@ footer{margin-top:14px;padding-top:10px}
     preview();
   });
   $('#fm-extend').addEventListener('change', function (e) { draft.extend = e.target.value; preview(); });
+  /* ★ 选模板：把该模板的档位 + 选项整体套进草稿并预览（2026-11-24）。
+     记住当前选中（下次打开弹窗、刷新、换品种都还是它），但不改模板内容。 */
   $('#fm-tpl').addEventListener('change', function (e) {
-    var k = e.target.value;
-    if (k && PRESETS[k]) {
-      draft.levels = clone(PRESETS[k].levels);
-      preview(); renderLevels();
-    }
-    e.target.value = '';
+    var i = +e.target.value;
+    var o = C.getFibTpls();
+    var t = o.tpls[i];
+    if (!t) { return; }
+    C.setFibTplCur(i);
+    draft.levels = clone(t.levels);
+    draft.showPrice = t.showPrice;
+    draft.extend = t.extend;
+    draft.dash = t.dash;
+    draft.invert = t.invert;
+    draft.hline = t.hline;
+    preview(); renderLevels(); renderOpts();
+  });
+  /* ★ 保存：把弹窗里当前的档位 + 选项写回下拉框选中的那个模板。
+     只存样式，不存坐标；不关闭弹窗（存完可能还要继续调）。
+     存完按钮短暂显示「已保存」，给一个确定的反馈。 */
+  $('#fm-tplsave').addEventListener('click', function () {
+    if (!draft) { return; }
+    var i = +$('#fm-tpl').value;
+    C.saveFibTpl(i, {
+      levels: draft.levels, showPrice: draft.showPrice !== false,
+      extend: draft.extend || 'none', dash: !!draft.dash,
+      invert: draft.invert === true, hline: draft.hline !== false
+    });
+    var b = $('#fm-tplsave');
+    b.textContent = '已保存';
+    b.disabled = true;
+    clearTimeout(b.__t);
+    b.__t = setTimeout(function () { b.textContent = '保存'; b.disabled = false; }, 1200);
   });
   $('#fm-addlv').addEventListener('click', function () {
     /* 新增一档：数值留空（不给预设值）。
@@ -12289,6 +12414,9 @@ footer{margin-top:14px;padding-top:10px}
        → 教训：不要用 try/catch 把"自己写错的变量名"和"环境异常"一起吞掉。 */
   var DRAW_PREFIX = 'divchart:';
   var FIB_STYLE_KEY = 'divchart:fibStyle';
+  /* ★ FIB 三个用户模板（2026-11-24），结构见引擎的 TPL_KEY 注释。
+     随画线一起上云；下载按 at 取较新的一份（见 doCloudPull）。 */
+  var FIB_TPL_KEY = 'divchart:fibTpl';
 
   /* ★★ 白板键（2026-10-19 新增）：'divchart:' + D.key + '__wb'
      它跟画线共用 divchart: 前缀，于是 collectDrawings() 自动把它
@@ -13062,7 +13190,7 @@ footer{margin-top:14px;padding-top:10px}
     cloudBusy(true);
 
     var addedFavs = 0, addedDraws = 0, gotWb = 0;
-    var gotFavs = false, gotDraws = false, gotFibStyle = false;
+    var gotFavs = false, gotDraws = false, gotFibStyle = false, gotFibTpl = false;
 
     /* ★★ 是否真的往 localStorage 写了东西（2026-10-21 新增）。
        用来决定"取回后要不要自动刷新"：
@@ -13141,6 +13269,23 @@ footer{margin-top:14px;padding-top:10px}
             continue;
           }
 
+          /* ★★ FIB 模板（2026-11-24）：{at, cur, tpls:[3 个]}。
+             上传不用改：它在 divchart: 前缀下、不在 TEMPLATE_KEYS 里，collectDrawings() 自动带上。
+             下载按 at（最后一次【保存模板】的时间）取较新的一份 ——
+             与 fibStyle 的"本地有就不动"不同：模板是用户主动保存的成果，
+             另一台机器上新存的就该覆盖过来，否则云同步对模板等于没用。
+             at 相同或云端更旧就保持本地。 */
+          if (k === FIB_TPL_KEY) {
+            if (!cloudRaw) { continue; }
+            var cAt = 0, lAt = 0;
+            try { cAt = +(JSON.parse(cloudRaw) || {}).at || 0; } catch (e) { continue; }
+            try { lAt = localRaw ? (+(JSON.parse(localRaw) || {}).at || 0) : -1; } catch (e) { lAt = -1; }
+            if (cAt > lAt) {
+              try { localStorage.setItem(k, cloudRaw); changed = true; gotFibTpl = true; } catch (e) { }
+            }
+            continue;
+          }
+
           /* ★★ 白板（纯文本）：不能走 mergeDrawStore（2026-10-19）。
              规则：本地为空 -> 取云端；云端为空 -> 保持本地；
                    都有 -> 取【较长】的那份（另一台机器补充过内容就更长，
@@ -13189,6 +13334,7 @@ footer{margin-top:14px;padding-top:10px}
           bits.push('画线' + (addedDraws ? ' +' + addedDraws : ' 无变化'));
         }
         if (gotFibStyle) { bits.push('FIB 档位已取回'); }
+    if (gotFibTpl) { bits.push('FIB 模板已更新'); }
         if (gotWb) { bits.push('白板 ' + gotWb + ' 份'); }
         cloudSay('已同步：' + bits.join('，'), 3400);
 
