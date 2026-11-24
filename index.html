@@ -1402,7 +1402,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-24 00:01
+生成：2026-11-24 11:18
 </div>
 </footer>
 
@@ -4114,6 +4114,66 @@ footer{margin-top:14px;padding-top:10px}
     }
   }
 
+  /* ★★ 最新价线（2026-11-24，对照 TradingView）：
+     最后一根收盘价处画一条横贯主图的虚线，右轴同一行贴价格标签。
+     有了实时轮询，最后一根的收盘价就是"当前最新价"，这条线会跟着跳。
+     ★ 颜色：本主题白涨黑跌、蜡烛墨色统一 #000（见 TH.upLine/dnLine），
+       所以线与标签都用墨色，不另起红绿 —— 与图上其它元素同一套颜色。
+     ★ 像素对齐：与十字线同规则（PX + crispC），整数物理像素宽，不发虚。
+     ★ 线只在价格落在主图可视范围内时画；标签始终可见，超出时贴主图上/下沿，
+       这样把图拖离最新价也知道现价在哪一侧（TradingView 同样如此）。
+     ★ 标签与光标价格标签【同一列、同尺寸】（文字从 padL+plotW+5 起），
+       光标标签画在它之后，悬停到同一高度时光标标签盖在上面。 */
+  function drawLastPrice() {
+    if (!N || !L.box || !L.box[PRIMARY]) { return; }
+    var cs = col('c');
+    var v = cs[N - 1];
+    if (v === null || v === undefined || !isFinite(v)) { return; }
+    var y = Y(v);
+    var ink = TH.dnLine;
+    var inView = (y >= L.priceT && y <= L.priceB);
+
+    if (inView) {
+      /* ★ 再细一点（2026-11-24 用户要求）：
+         线宽固定 1 个【物理像素】，不随缩放变粗（125%/150%/200% 下更细）；
+         虚线改成稀疏的点：1 份实 + 2 份空（按缩放比例换成物理像素）。
+         100% 缩放下本来就是 1px，再细只能靠点更稀，让线看着更轻。 */
+      var P = PX(), w1 = 1;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = w1;
+      ctx.setLineDash([Math.max(1, Math.round(1 * P.sx)), Math.max(2, Math.round(2 * P.sx))]);
+      var hy = crispC(y * P.sy + P.ty, w1);
+      ctx.beginPath();
+      ctx.moveTo(L.padL * P.sx + P.tx, hy);
+      ctx.lineTo((L.padL + L.plotW) * P.sx + P.tx, hy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    ctx.save();
+    var txt = fmtP(v);
+    ctx.font = CF(600, 12);
+    var tw = ctx.measureText(txt).width;
+    var padX = 7, boxH = 22;
+    var bx = L.padL + L.plotW + 5 - padX;
+    var by = clamp(y - boxH / 2, L.priceT, L.priceB - boxH);
+    ctx.fillStyle = ink;
+    if (ctx.roundRect) {
+      ctx.beginPath(); ctx.roundRect(bx, by, tw + padX * 2, boxH, 4); ctx.fill();
+    } else {
+      ctx.fillRect(bx, by, tw + padX * 2, boxH);
+    }
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(txt, bx + padX, by + boxH / 2 + 0.5);
+    ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+  }
+
   var WEEK_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
   /* 光标处的时间标签：日线只给日期，日内给 周几 + MM-DD HH:MM */
@@ -4190,6 +4250,7 @@ footer{margin-top:14px;padding-top:10px}
 
     drawFrame();
     drawAxis();
+    drawLastPrice();         /* 最新价虚线 + 右轴价格标签（光标标签画在它之后，悬停时压在上面） */
     drawHover();
     updateTip();
   }
@@ -6398,6 +6459,8 @@ footer{margin-top:14px;padding-top:10px}
        同一策略下 spec 结构一致，引擎不重建，只换数据并复位视图。
        手绘图元按品种存档（见 storeKey），所以切回来还在。 */
     loadPayload: function (payload) { loadPayload(payload); },
+    /* ★ 实时轮询用（2026-11-24）：同品种同周期换数据，不复位视图，见 replaceSeries */
+    updateSeries: function (payload) { replaceSeries(payload); },
     onLoad: null,
     /* ★ 设置哪些叠加线隐藏（2026-10-18）。
        前端在取数成功后调用它，把存档里的偏好灌进引擎。
@@ -6548,6 +6611,34 @@ footer{margin-top:14px;padding-top:10px}
     if (typeof window.DIVCHART.onLoad === 'function') {
       try { window.DIVCHART.onLoad(D); } catch (e) { }
     }
+  }
+
+  /* ★★ 实时行情：只换数据、不动视图（2026-11-24）。
+     与 loadPayload 的区别：loadPayload 是"换品种"，会复位视图、清图元状态、
+     收起均线浮层；实时轮询每 1.5 秒来一次，那样做会让用户的缩放/平移/
+     正在编辑的浮层每秒被打回去。这里只做三件事：
+       ① 换 SER / N（指标已由 ChartPayload.build 按整条序列重算）；
+       ② reapplyOverlays()：把用户改过的均线参数套回新数组；
+       ③ 视图"跟最新"：原本就停在最新一根（右缘在最后一根之后）时，
+          新开一根就整体右移一根 —— 与 TradingView 一致；
+          用户拖到历史区域时不动，只更新数据。
+     ★ SPEC / PANEL_SPECS / 图例宿主一律沿用：同品种同周期，结构不会变，
+       换成新对象反而会让已绑定的事件、已套用的均线标签失效。
+     ★ 拖动中（st.panning / st.down）不右移，免得和手上的拖动打架。 */
+  function replaceSeries(payload) {
+    var oldN = N;
+    var follow = (st.start + st.count >= oldN - 0.5) && !st.panning && !st.down;
+    var legendAtLast = (st.lastIdx === oldN - 1);
+    D = payload || {};
+    SER = D.series || D;
+    N = (SER.d || []).length;
+    reapplyOverlays();
+    window.__DIV_DATA__ = D;
+    var added = N - oldN;
+    if (added > 0 && follow) { st.start += added; }
+    /* 图例默认显示最后一根：原来就在看最后一根，就跟到新的最后一根 */
+    if (legendAtLast) { st.lastIdx = N - 1; }
+    draw();
   }
 
   function init() {
@@ -10642,6 +10733,111 @@ footer{margin-top:14px;padding-top:10px}
         if (olderDone || !olderFn) { return; }
         fetchOlderOnce();
       };
+
+      /* ==================================================================
+         ★★ 实时行情：轮询镜像接口（2026-11-24 用户要求）
+         ==================================================================
+         ★ 为什么是轮询而不是 WebSocket：实测两个镜像站都不转发推送；
+           能连的只有欧易网页自用的备用域名（非官方、随时可能失效）
+           和币安【现货】推送（与合约差约 36 美元，不能拿来更新合约 K 线）。
+           用户定为两家都轮询镜像接口。
+         ★ 每 1.5 秒取最新 2 根：第 2 根是正在走的那根，第 1 根用来
+           兜住"刚收盘、新开一根"的瞬间（上一根的最终收盘价也要落定）。
+           每分钟约 40 次，远低于两家的限频。
+         ★ 合并规则：时间戳等于已有某根 → 覆盖；比最后一根新 → 追加；
+           更早的不管。价格没变就不重建、不重画。
+         ★ 重建整条载荷再交给引擎（与懒加载同一条路）：
+           EMA/RSI/MACD 必须按整条序列重算，才能与 indicators.py 一致；
+           但走 DIVCHART.updateSeries 而不是 loadPayload —— 后者会复位视图。
+         ★ 与懒加载互斥：补历史期间不轮询（补历史拿的是起点那一刻的序列，
+           中途追加的新根会在它合并时被丢掉）。
+         ★ 后台标签页不取，切回来立即补一次。
+         ★ A股/期货/美股的源只给到上一交易日，没有实时可取，不做。 */
+      (function setupLive() {
+        if (!usedSource || usedSource.indexOf('镜像') < 0) { return; }
+        var cxl = cryptoOf(CODE);
+        if (!cxl || (cxl.ex !== 'binance' && cxl.ex !== 'okx')) { return; }
+        var LIVE_MS = 1500;
+        var liveBusy = false;
+
+        function latestUrl() {
+          if (cxl.ex === 'binance') {
+            var cb = CRYPTO_SRC.binance;
+            return cb.mirror + cb.path
+              + '?symbol=' + encodeURIComponent(cxl.symbol)
+              + '&interval=' + encodeURIComponent(cb.intervalOf(TF))
+              + '&limit=2';
+          }
+          /* ★ 欧易用 /market/candles 而不是 history-candles：
+             后者是归档接口，不含正在走的那一根；前者第一条就是当前未收盘的 K 线。 */
+          var co = CRYPTO_SRC.okx;
+          return cryptoBase(co) + '/api/v5/market/candles'
+            + '?instId=' + encodeURIComponent(cxl.symbol)
+            + '&bar=' + encodeURIComponent(co.intervalOf(TF))
+            + '&limit=2';
+        }
+
+        function pollOnce() {
+          if (liveBusy || olderInFlight || document.hidden) { return; }
+          if (!window.DIVCHART || typeof DIVCHART.updateSeries !== 'function') { return; }
+          liveBusy = true;
+          fetchJson(latestUrl(), 5000).then(function (j) {
+            var rows = (cxl.ex === 'okx') ? ((j && j.data) || []).slice().reverse() : (j || []);
+            if (!rows.length) { return; }
+            var fresh = rows.map(function (k) { return normalizeCryptoBar(k, TF); });
+
+            var cur = window.__DIV_DATA__;
+            if (!cur || olderInFlight) { return; }
+            var ser = cur.series || cur;
+            var n = (ser.d || []).length;
+            if (!n) { return; }
+            var bars = [];
+            for (var i = 0; i < n; i++) {
+              bars.push({ t: ser.d[i], o: ser.o[i], h: ser.h[i],
+                          l: ser.l[i], c: ser.c[i], v: ser.v ? ser.v[i] : 0 });
+            }
+            var changed = false, appended = 0;
+            fresh.forEach(function (b) {
+              var lastT = parseStamp(bars[bars.length - 1].t);
+              var bt = parseStamp(b.t);
+              if (!bt) { return; }
+              if (bt > lastT) { bars.push(b); changed = true; appended++; return; }
+              /* 只回看最后几根即可：取的就是最新 2 根 */
+              for (var q = bars.length - 1; q >= Math.max(0, bars.length - 4); q--) {
+                if (parseStamp(bars[q].t) === bt) {
+                  var o = bars[q];
+                  if (o.o !== b.o || o.h !== b.h || o.l !== b.l || o.c !== b.c) {
+                    bars[q] = b; changed = true;
+                  }
+                  return;
+                }
+              }
+            });
+            if (!changed) { return; }
+
+            var payload = window.ChartPayload.build(bars, {
+              key: cur.key, title: cur.title, tf: cur.tf || TF
+            });
+            DIVCHART.updateSeries(payload);
+            if (appended) {
+              var info = document.getElementById('vk-info');
+              if (info) {
+                info.textContent = info.textContent
+                  .replace(/\d+ 根/, bars.length + ' 根')
+                  .replace(/→ [^\[]+?(\s+\[)/, '→ ' + bars[bars.length - 1].t + '$1');
+              }
+            }
+          }).catch(function () {
+            /* 单次失败不提示：下一轮会再取，网络抖一下不该在页面上弹字 */
+          }).then(function () { liveBusy = false; });
+        }
+
+        setInterval(pollOnce, LIVE_MS);
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) { pollOnce(); }
+        });
+        window.__VIEWER_LIVE_POLL__ = pollOnce;     /* 调试/验证用 */
+      })();
 
       /* ★★ 引擎起来后立刻补做页面接线（2026-10-20 修）。
          第 2 段接线是紧跟本文件的普通 script，【同步立即执行】，
