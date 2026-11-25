@@ -1262,20 +1262,28 @@ footer{margin-top:14px;padding-top:10px}
         </div>
       </div>
       <div class="fm-pane on" data-pane="coord">
+        <!-- ★ 序号按钮 tabindex="-1"（2026-11-25 用户要求）：
+             它们是"点击切换激活行"的开关，不是要填的表单字段。
+             留在 Tab 序列里会让 Tab 先停在数字上、要按好几下才到价格栏。
+             移出后 Tab 顺序就是 价格1 → 价格2 → 价格3 → 模板 → 保存 → 取消 → 确认。
+             ★ 鼠标点击照样有效，只是不再被 Tab 选中。 -->
         <div class="fm-coord">
-          <button class="fm-cnum on" data-i="0" id="fm-c1num" title="点击激活/停用这一行">1</button>
+          <button class="fm-cnum on" data-i="0" id="fm-c1num" tabindex="-1"
+                  title="点击激活/停用这一行">1</button>
           <input class="fm-input fm-clv" id="fm-c1lv" value="1" readonly tabindex="-1"
                  title="档位固定，不可修改">
           <input class="fm-input fm-cprice" id="fm-c1price" placeholder="价格">
         </div>
         <div class="fm-coord">
-          <button class="fm-cnum on" data-i="1" id="fm-c2num" title="点击激活/停用这一行">2</button>
+          <button class="fm-cnum on" data-i="1" id="fm-c2num" tabindex="-1"
+                  title="点击激活/停用这一行">2</button>
           <input class="fm-input fm-clv" id="fm-c2lv" value="0" readonly tabindex="-1"
                  title="档位固定，不可修改">
           <input class="fm-input fm-cprice" id="fm-c2price" placeholder="价格">
         </div>
         <div class="fm-coord">
-          <button class="fm-cnum" data-i="2" id="fm-c3num" title="点击激活/停用这一行">3</button>
+          <button class="fm-cnum" data-i="2" id="fm-c3num" tabindex="-1"
+                  title="点击激活/停用这一行">3</button>
           <input class="fm-input fm-clv" id="fm-c3lv" value="0.786" readonly tabindex="-1"
                  title="档位固定，不可修改">
           <input class="fm-input fm-cprice" id="fm-c3price" placeholder="价格">
@@ -1301,12 +1309,13 @@ footer{margin-top:14px;padding-top:10px}
       </div>
     </div>
     <div class="fm-foot">
-      <!-- ★ FIB 模板（2026-11-24）：下拉框 + 紧挨着的「保存」。
-           保存放在下拉框右侧、与「取消/确认」隔开：
-           · 它作用于左边这个模板，挨着放一眼就知道存到哪；
-           · 和右侧的确认/取消分开，免得把"存模板"误当成"确认这条 FIB"。 -->
+      <!-- ★ FIB 模板（2026-11-26 简化）：下拉框 + 「保存」，就图里那样。
+           ★ 去掉了「套用」按钮和 ≠/= 提示：
+             下拉框选中哪个模板，就【立刻把当前这条 FIB 换成它】——
+             不需要先选再点套用那一步。
+           ★ 「保存」写明文存到哪个模板，不再弹确认框。 -->
       <select class="fm-tpl" id="fm-tpl"></select>
-      <button class="fm-btn" id="fm-tplsave" type="button" title="把当前档位与选项保存到左边选中的模板">保存</button>
+      <button class="fm-btn" id="fm-tplsave" type="button">保存</button>
       <span class="fm-sp"></span>
       <button class="fm-btn" id="fm-cancel">取消</button>
       <button class="fm-btn primary" id="fm-ok">确认</button>
@@ -1405,7 +1414,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-24 13:07
+生成：2026-11-26 00:45
 </div>
 </footer>
 
@@ -5176,6 +5185,9 @@ footer{margin-top:14px;padding-top:10px}
 
   function handleDrawClick(m) {
     var pt = { i: iAt(m.x), p: pAt(m.y) };
+    /* ★ 同时记下时间戳（2026-11-26）：下标会随补历史整体偏移，时间不会。
+       渲染与命中以时间为准（见 anchorT / syncAnchorIndexes）。 */
+    pt.t = anchorT(pt.i);
     if (!st.pending) {
       if (st.tool === 'hline') {
         st.drawings.push({ type: 'hline', pts: [pt], color: '#0f172a' });
@@ -5966,6 +5978,78 @@ footer{margin-top:14px;padding-top:10px}
     try { localStorage.setItem(TPL_KEY, JSON.stringify(o)); } catch (e) { }
   }
 
+  /* ==================================================================
+     ★★ 图元锚点按【时间】存，不按数组下标（2026-11-26 修"FIB 漂移"）
+     ==================================================================
+     ★ 为什么会漂：锚点原来是 { i: 数组下标, p: 价格 }。
+       下标只有在"数据永不变化"时才稳定。实际上：
+         · 实时轮询新开一根 —— 追加在末尾，下标不变（没问题）；
+         · 往左补历史（懒加载 / 前往到）—— 前面插入 N 根，
+           【所有下标整体后移 N】，而 pts[i].i 还是旧值 → 图元相对 K 线偏了 N 根。
+       用户看到的就是"之前画的 FIB 坐标漂移了"。
+     ★ 解法（TradingView 同思路）：锚点记【时间戳】，画的时候用时间反查下标。
+       时间戳是不随数据增减变化的绝对量，补多少历史都不影响。
+     ★ 兼容：旧存档只有 i 没有 t，load() 时按当前数据把 i 折算成 t 并补齐；
+       之后一律以 t 为准（i 只作为缓存，每次 bindData 后重新同步）。
+     ★ 注意：t 用【该根 K 线的时间字符串】（ser.d[i]），不是毫秒数 ——
+       与存档里其它字段同一口径，且字符串相等比较足够。 */
+  function anchorT(i) {
+    var d = col('d');
+    if (i === undefined || i === null) { return null; }
+    var k = Math.round(i);
+    if (k < 0 || k >= d.length) { return null; }
+    return d[k];
+  }
+  /* 时间 -> 当前下标。找不到时返回最近的可用下标（图元不至于消失）。 */
+  function indexOfT(t) {
+    var d = col('d');
+    if (!t || !d.length) { return null; }
+    var lo = 0, hi = d.length - 1, best = 0, bestDiff = Infinity;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      var midT = d[mid];
+      if (midT === t) { return mid; }
+      if (midT < t) { lo = mid + 1; best = mid; }
+      else { hi = mid - 1; }
+    }
+    /* 没精确命中：取时间上最近的（左侧的 best 与它右边那个比较） */
+    for (var k = Math.max(0, best - 1); k <= Math.min(d.length - 1, best + 1); k++) {
+      var diff = Math.abs(Date.parse(String(d[k]).replace(' ', 'T')) - 
+                          Date.parse(String(t).replace(' ', 'T')));
+      if (diff < bestDiff) { bestDiff = diff; best = k; }
+    }
+    return best;
+  }
+  /* 每次数据变化后，把所有图元的 i 按 t 重新对齐（补历史/换品种/轮询都走这里） */
+  function syncAnchorIndexes() {
+    var dd = st.drawings;
+    if (!dd || !dd.length) { return; }
+    var dirty = false;        /* 有锚点从旧格式补出了 t → 需要回写存档 */
+    for (var k = 0; k < dd.length; k++) {
+      var d = dd[k];
+      if (!d || !d.pts) { continue; }
+      for (var j = 0; j < d.pts.length; j++) {
+        var pt = d.pts[j];
+        if (!pt) { continue; }
+        if (pt.t) {
+          var idx = indexOfT(pt.t);
+          if (idx !== null && idx !== pt.i) { pt.i = idx; dirty = true; }
+        } else {
+          /* 还没有 t（旧存档）：用当前下标折算一次，之后就有 t 了 */
+          var tv = anchorT(pt.i);
+          if (tv) { pt.t = tv; dirty = true; }
+        }
+      }
+    }
+    /* ★ 必须把补出来的 t 写回存档（2026-11-26）。
+       只改内存的话，下次 load() 又从存档读到没有 t 的旧锚点，
+       于是每补一次历史就按"当时的下标"重新折算 —— 漂移照旧。
+       写回后锚点就永久锁定在时间上。
+       ★ 注意：i 也一起写回，存档与内存保持一致，
+         下次打开不会因为存档里的旧 i 去重新折算而错位。 */
+    if (dirty) { save(); }
+  }
+
   function load() {
     try {
       /* ---- 1) 全局 FIB 样式（优先读新键；兼容旧版存在品种存档里的那份）---- */
@@ -6008,6 +6092,10 @@ footer{margin-top:14px;padding-top:10px}
           }
         }
       }
+      /* ★ 读完后立刻按时间对齐下标（2026-11-26）：
+         旧存档只有 i，这里把 i 折算成 t；已有 t 的按当前数据重算 i。
+         必须在 load() 里做 —— 它紧跟在 bindData 之后，N/d 已经就绪。 */
+      syncAnchorIndexes();
     } catch (e) { st.drawings = []; }
   }
 
@@ -6503,8 +6591,22 @@ footer{margin-top:14px;padding-top:10px}
       }
       return null;
     },
-    applyFib: function (style) {
-      var d = this._targetFib();
+    _fibSelected: function () {
+      return st.selIdx >= 0 && st.drawings[st.selIdx]
+          && st.drawings[st.selIdx].type === 'fib';
+    },
+    applyFib: function (style, opts) {
+      opts = opts || {};
+      /* ★★ 只有明确要求时才改【全局默认样式】（2026-11-26 修"模板被夺舍"）。
+         原来第 2 段是无条件的：任何一次预览（弹窗里改一个档位）都会把档位
+         写进 st.fibStyle 并 saveStyle() 落盘。于是"打开一条老 FIB 改一下、
+         点取消"之后，全局默认已变成老 FIB 的档位，新画的 FIB 全长成老样子
+         —— 用户看到的就是"模板被夺舍了，而且没点保存"。
+         现在：改【选中的 FIB】时不动全局；改【默认样式】（没选中）时才动。 */
+      var global = (opts.global === true) || !st.selIdx;
+      var d = this._fibSelected()
+        ? st.drawings[st.selIdx]
+        : (opts.anyFib === true ? this._targetFib() : null);
       /* 颜色强制吸附到四色调色板，保证图上只出现这四种颜色 */
       var map = function (ls) {
         return ls.map(function (l) {
@@ -6521,15 +6623,18 @@ footer{margin-top:14px;padding-top:10px}
         if (style.hline !== undefined) { d.hline = style.hline; }
         if (style.coords) { applyCoords(d, style.coords); }
       }
-      /* 2) 同时更新【全局】默认样式，供后续新建使用（跨品种/周期共享） */
-      var s = st.fibStyle;
-      if (style.levels) { s.levels = map(style.levels); }
-      if (style.showPrice !== undefined) { s.showPrice = style.showPrice; }
-      if (style.extend !== undefined) { s.extend = style.extend; }
-      if (style.dash !== undefined) { s.dash = style.dash; }
-      if (style.invert !== undefined) { s.invert = style.invert; }
-      if (style.hline !== undefined) { s.hline = style.hline; }
-      save(); saveStyle(); draw();
+      /* 2) 全局默认样式：只在"在改默认"时才更新并落盘 */
+      if (global) {
+        var s = st.fibStyle;
+        if (style.levels) { s.levels = map(style.levels); }
+        if (style.showPrice !== undefined) { s.showPrice = style.showPrice; }
+        if (style.extend !== undefined) { s.extend = style.extend; }
+        if (style.dash !== undefined) { s.dash = style.dash; }
+        if (style.invert !== undefined) { s.invert = style.invert; }
+        if (style.hline !== undefined) { s.hline = style.hline; }
+        saveStyle();
+      }
+      save(); draw();
       return !!d;
     },
     /* 直接把某个 FIB 的锚点坐标改成指定日期/价格 */
@@ -6729,6 +6834,9 @@ footer{margin-top:14px;padding-top:10px}
     window.__DIV_DATA__ = D;
     var added = N - oldN;
     if (added > 0 && follow) { st.start += added; }
+    /* ★ 数据变了就把图元下标按时间重新对齐（2026-11-26）：
+       往左补历史时前面插入 N 根，锚点下标必须整体后移，否则 FIB 会漂。 */
+    syncAnchorIndexes();
     /* 图例默认显示最后一根：原来就在看最后一根，就跟到新的最后一根 */
     if (legendAtLast) { st.lastIdx = N - 1; }
     draw();
@@ -6989,18 +7097,43 @@ footer{margin-top:14px;padding-top:10px}
     EXTS.forEach(function (m) { h += '<option value="' + m.k + '">' + m.name + '</option>'; });
     $('#fm-extend').innerHTML = h;
   })();
-  /* 模板下拉（★ 2026-11-24：固定 3 个可保存的用户模板，取代原来 5 个写死的预设）
-     下拉框始终显示【当前模板】，不再选完复位成「模板…」——
-     旁边的「保存」存的就是下拉框里这一个，用户必须看得见存到哪。 */
+  /* ★ 模板下拉（2026-11-26 简化）。
+     ★ 选中哪个模板 = 【立刻把当前这条 FIB 换成它】，一步到位。
+       早先 change 只切选中、另点「套用」才生效 —— 两步，
+       而且"下拉框选中的是哪个"和"画面上这套是不是它"是两件事，看不出区别。
+     ★ 同时记住当前模板，并用它作为【以后新画 FIB】的默认档位。 */
   function renderTplSelect() {
     var o = C.getFibTpls();
     var h = '';
     o.tpls.forEach(function (t, i) { h += '<option value="' + i + '">' + t.name + '</option>'; });
-    $('#fm-tpl').innerHTML = h;
-    $('#fm-tpl').value = String(o.cur);
+    var sel = $('#fm-tpl');
+    if (sel) { sel.innerHTML = h; sel.value = String(o.cur); }
+    var sv = $('#fm-tplsave');
+    if (sv) { sv.title = '把当前档位保存到「' + o.tpls[o.cur].name + '」（会覆盖它）'; }
+  }
+
+  /* 把第 i 个模板套到当前 FIB（下拉 change 调用） */
+  function applyTpl(i) {
+    var o = C.getFibTpls();
+    var t = o.tpls[i];
+    if (!t) { return; }
+    C.setFibTplCur(i);
+    draft.levels = clone(t.levels);
+    draft.showPrice = t.showPrice;
+    draft.extend = t.extend;
+    draft.dash = t.dash;
+    draft.invert = t.invert;
+    draft.hline = t.hline;
+    /* ★ 连【以后新画的 FIB】也一起变成模板的样子：
+       模板就是"我设定好的那套档位"，新画的当然该是这套。
+       早先只改当前这条，于是"模板2 里有 1.404，新画的却没有"。 */
+    C.applyFib({ levels: clone(t.levels), showPrice: t.showPrice !== false,
+                 extend: t.extend, dash: !!t.dash,
+                 invert: t.invert === true, hline: t.hline !== false },
+               { global: true });
+    renderLevels(); renderOpts(); renderTplSelect();
   }
   renderTplSelect();
-
   /* ---- 标签页 ---- */
   document.querySelectorAll('.fm-tab').forEach(function (t) {
     t.addEventListener('click', function () {
@@ -7235,32 +7368,59 @@ footer{margin-top:14px;padding-top:10px}
   }
 
   /* 单击已选中的 FIB / 双击 FIB -> 打开 */
-  $('#fm-close').addEventListener('click', function () { closeModal(); });
-  $('#fm-cancel').addEventListener('click', function () {
-    /* 回滚到打开时的状态 */
+  /* ★ 三种关闭方式行为统一（2026-11-26）：×、点弹窗外、Esc 都等价于【取消】，
+     会还原打开时的状态。早先只有「取消」和 Esc 还原，× 和点外面是"关掉就算数"，
+     于是预览时的改动被留了下来 —— 用户会觉得"设置莫名其妙丢了/变了"。 */
+  function cancelModal() {
     if (snapshot) { C.applyFib(snapshot); }
     closeModal();
-  });
-  $('#fm-ok').addEventListener('click', function () {
+  }
+  $('#fm-close').addEventListener('click', function () { cancelModal(); });
+  $('#fm-cancel').addEventListener('click', function () { cancelModal(); });
+  /* ★ 确认动作抽成一个函数（2026-11-25）：「确认」按钮和回车共用同一条路径。
+     早先写成匿名的 click 回调，想支持回车就得复制一遍逻辑 ——
+     两处一旦不同步，就会出现"点按钮生效、按回车不生效"的怪现象。
+     ★ 返回值表示有没有真的确认：少一行/多一行时返回 false，弹窗保持打开，
+       让用户看到 updateConfirmState() 写出的原因，而不是"按了回车窗子没了、图却没变"。 */
+  function confirmFib() {
     /* 硬校验：只有恰好激活 2 行才允许确认。
        按钮在 updateConfirmState() 里已置灰，这里再拦一道 ——
-       置灰是"提示"，这里的判断才是"保证"，避免将来有人改了 UI
-       却忘了同步这个前提（键盘回车等路径也可能绕过 disabled）。 */
-    if (activeCoordCount() !== 2) { updateConfirmState(); return; }
+       置灰是"提示"，这里的判断才是"保证"，键盘回车这条路径同样受它约束。 */
+    if (activeCoordCount() !== 2) { updateConfirmState(); return false; }
     /* ★ 必须显式写一次坐标：preview() 只应用样式（档位/颜色/延伸），
        不含 coords。早先这里只调 preview()，于是"确认"后
        图上并没有按坐标栏重建 FIB —— 也是"点了没用"的原因之一。 */
     applyCoordsFromInputs();
     preview();
     closeModal();
-  });
+    return true;
+  }
+
+  $('#fm-ok').addEventListener('click', function () { confirmFib(); });
+  /* ★ 回车 = 确认（2026-11-25 用户要求）：不用再去点按钮。
+     只拦【文本类输入】上的回车：
+       · 按钮上按回车本来就等于点击，再拦一次会重复触发；
+       · 下拉框（模板/延伸）上的回车由浏览器自己处理，不该被当成确认；
+       · 文本框（白板、图元文字）走各自的处理，也不能被这里抢走。
+     preventDefault 顺便挡掉"输入框回车提交表单"的默认行为。 */
+  function onModalEnter(e) {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) { return; }
+    if (!$('#dc-modal').classList.contains('show')) { return; }
+    var t = e.target || {};
+    var tag = (t.tagName || '').toLowerCase();
+    var isText = (tag === 'input' && (t.type === 'text' || t.type === 'number' || t.type === 'tel'))
+              || tag === 'textarea';
+    if (!isText) { return; }
+    e.preventDefault();
+    confirmFib();
+  }
+  document.addEventListener('keydown', onModalEnter);
   $('#dc-modal').addEventListener('click', function (e) {
-    if (e.target === $('#dc-modal')) { closeModal(); }
+    if (e.target === $('#dc-modal')) { cancelModal(); }
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && $('#dc-modal').classList.contains('show')) {
-      if (snapshot) { C.applyFib(snapshot); }
-      closeModal();
+      cancelModal();
     }
   });
 
@@ -7272,25 +7432,14 @@ footer{margin-top:14px;padding-top:10px}
     preview();
   });
   $('#fm-extend').addEventListener('change', function (e) { draft.extend = e.target.value; preview(); });
-  /* ★ 选模板：把该模板的档位 + 选项整体套进草稿并预览（2026-11-24）。
-     记住当前选中（下次打开弹窗、刷新、换品种都还是它），但不改模板内容。 */
+  /* ★ 选模板 = 立刻把当前 FIB 换成它（2026-11-26 简化）。
+     不再是"先选、再点套用"两步 —— 下拉框选中哪个，图就变成哪个。 */
   $('#fm-tpl').addEventListener('change', function (e) {
-    var i = +e.target.value;
-    var o = C.getFibTpls();
-    var t = o.tpls[i];
-    if (!t) { return; }
-    C.setFibTplCur(i);
-    draft.levels = clone(t.levels);
-    draft.showPrice = t.showPrice;
-    draft.extend = t.extend;
-    draft.dash = t.dash;
-    draft.invert = t.invert;
-    draft.hline = t.hline;
-    preview(); renderLevels(); renderOpts();
+    applyTpl(+e.target.value);
   });
   /* ★ 保存：把弹窗里当前的档位 + 选项写回下拉框选中的那个模板。
      只存样式，不存坐标；不关闭弹窗（存完可能还要继续调）。
-     存完按钮短暂显示「已保存」，给一个确定的反馈。 */
+     ★ 不再弹确认框：保存按钮的提示（title）已写明存到哪个模板、会覆盖它。 */
   $('#fm-tplsave').addEventListener('click', function () {
     if (!draft) { return; }
     var i = +$('#fm-tpl').value;
@@ -7890,6 +8039,7 @@ footer{margin-top:14px;padding-top:10px}
     setText: function (s) { ta.value = String(s == null ? '' : s); showEdit(true); saveWhiteboard(); }
   };
 })();
+
 </script>
 <script>window.__VIEWER_CFG__ = {"code": "BTCUSDT", "bars": 0};</script>
 <script>window.__VIEWER_WATCHLIST__ = [["600519","贵州茅台","股票"],["000001","平安银行","股票"],["600036","招商银行","股票"],["601318","中国平安","股票"],["000858","五粮液","股票"],["002594","比亚迪","股票"],["300750","宁德时代","股票"],["600030","中信证券","股票"],["601899","紫金矿业","股票"],["600900","长江电力","股票"],["sh000001","上证指数","指数"],["sz399001","深证成指","指数"],["sz399006","创业板指","指数"],["sh000300","沪深300","指数"],["sh000905","中证500","指数"],["sh000688","科创50","指数"],["113.agm","沪银主连","上期所"],["113.alm","沪铝主连","上期所"],["113.aom","氧化铝主连","上期所"],["113.aum","沪金主连","上期所"],["113.brm","丁二烯胶主连","上期所"],["113.bum","沥青主连","上期所"],["113.cum","沪铜主连","上期所"],["113.fum","燃油主连","上期所"],["113.hcm","热卷主连","上期所"],["113.nim","沪镍主连","上期所"],["113.pbm","沪铅主连","上期所"],["113.rbm","螺纹钢主连","上期所"],["113.rum","橡胶主连","上期所"],["113.snm","沪锡主连","上期所"],["113.spm","纸浆主连","上期所"],["113.ssm","不锈钢主连","上期所"],["113.znm","沪锌主连","上期所"],["142.bcm","国际铜主连","上期能源"],["142.ecm","欧线集运主连","上期能源"],["142.lum","低硫燃油主连","上期能源"],["142.nrm","20号胶主连","上期能源"],["142.scm","原油主连","上期能源"],["114.am","豆一主连","大商所"],["114.bm","豆二主连","大商所"],["114.cm","玉米主连","大商所"],["114.csm","淀粉主连","大商所"],["114.ebm","苯乙烯主连","大商所"],["114.egm","乙二醇主连","大商所"],["114.im","铁矿石主连","大商所"],["114.jdm","鸡蛋主连","大商所"],["114.jm","焦炭主连","大商所"],["114.jmm","焦煤主连","大商所"],["114.lhm","生猪主连","大商所"],["114.lm","塑料主连","大商所"],["114.mm","豆粕主连","大商所"],["114.pgm","LPG主连","大商所"],["114.pm","棕榈油主连","大商所"],["114.ppm","聚丙烯主连","大商所"],["114.rrm","粳米主连","大商所"],["114.vm","PVC主连","大商所"],["114.ym","豆油主连","大商所"],["115.APm","苹果主连","郑商所"],["115.CFm","棉花主连","郑商所"],["115.CJm","红枣主连","郑商所"],["115.FGm","玻璃主连","郑商所"],["115.MAm","甲醇主连","郑商所"],["115.OIm","菜油主连","郑商所"],["115.PFm","短纤主连","郑商所"],["115.PKm","花生主连","郑商所"],["115.PXm","对二甲苯主连","郑商所"],["115.RMm","菜粕主连","郑商所"],["115.SAm","纯碱主连","郑商所"],["115.SFm","硅铁主连","郑商所"],["115.SHm","烧碱主连","郑商所"],["115.SMm","锰硅主连","郑商所"],["115.SRm","白糖主连","郑商所"],["115.TAm","PTA主连","郑商所"],["115.URm","尿素主连","郑商所"],["115.ZCm","动力煤主连","郑商所"],["225.lcm","碳酸锂主连","广期所"],["225.psm","多晶硅主连","广期所"],["225.sim","工业硅主连","广期所"],["220.ICm","中证500股指主连","中金所"],["220.IFm","沪深主连","中金所"],["220.IHm","上证主连","中金所"],["220.IMm","中证1000股指主连","中金所"],["220.TFm","五债主连","中金所"],["220.TLm","三十债主连","中金所"],["220.TSm","二债主连","中金所"],["220.Tm","十债主连","中金所"]];</script>
@@ -10817,8 +10967,15 @@ footer{margin-top:14px;padding-top:10px}
             key: cur.key, title: cur.title,
             tf: cur.tf || TF       /* 补数据后重建载荷，周期字段不能丢 */
           });
-          if (window.DIVCHART && DIVCHART.loadPayload) {
-            DIVCHART.loadPayload(window.__DIV_DATA__);
+          /* ★★ 补历史改用 updateSeries，不用 loadPayload（2026-11-26 修"拖不动"）。
+             loadPayload 是"换品种"语义：它会复位视图、清空选中与拖动状态、
+             重新 load() 图元存档 —— 于是补完历史后，用户刚画好的 FIB
+             选中态没了、手柄没了，看起来就是"没锁也拖不动了"。
+             updateSeries 只换数据 + 按时间重对齐图元下标，不碰交互状态。 */
+          if (window.DIVCHART && typeof DIVCHART.updateSeries === 'function') {
+            DIVCHART.updateSeries(window.__DIV_DATA__);
+          } else if (window.DIVCHART && DIVCHART.loadPayload) {
+            DIVCHART.loadPayload(window.__DIV_DATA__);   /* 老引擎兜底 */
           }
           /* ★ 复位视图：补了 added 根，旧位置整体后移 added，
              这样用户看到的内容不会跳，只是左边"又能继续拉了"。 */
