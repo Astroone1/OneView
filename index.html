@@ -1414,7 +1414,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-27 12:24
+生成：2026-11-27 19:46
 </div>
 </footer>
 
@@ -6702,7 +6702,12 @@ footer{margin-top:14px;padding-top:10px}
          点取消"之后，全局默认已变成老 FIB 的档位，新画的 FIB 全长成老样子
          —— 用户看到的就是"模板被夺舍了，而且没点保存"。
          现在：改【选中的 FIB】时不动全局；改【默认样式】（没选中）时才动。 */
-      var global = (opts.global === true) || !st.selIdx;
+      /* ★★ 2026-11-27 修：原来写成 `!st.selIdx` —— selIdx 是下标，
+         选中【第 0 条】图元时 !0 为真，被误当成"在改全局默认"；
+         而真正没选中时 selIdx = -1，!(-1) 为假，反而不写全局。
+         最早画的老 FIB 往往就是第 0 条：一打开它，每次预览（含取消时的还原）
+         都把它的档位写进全局默认 —— 这才是"不点保存也被夺舍"的真正根因。 */
+      var global = (opts.global === true) || !this._fibSelected();
       var d = this._fibSelected()
         ? st.drawings[st.selIdx]
         : (opts.anyFib === true ? this._targetFib() : null);
@@ -7201,14 +7206,43 @@ footer{margin-top:14px;padding-top:10px}
        早先 change 只切选中、另点「套用」才生效 —— 两步，
        而且"下拉框选中的是哪个"和"画面上这套是不是它"是两件事，看不出区别。
      ★ 同时记住当前模板，并用它作为【以后新画 FIB】的默认档位。 */
-  function renderTplSelect() {
+  /* ★★ 2026-11-27 修"选了模板没反应"：
+     原来下拉框永远显示【上次用的模板】。打开一条老 FIB 时它也写着「模板2」，
+     用户再选「模板2」，值没变，浏览器不触发 change —— 什么都不发生。
+     现在：打开时比对这条 FIB 与三个模板，完全一致才显示那个模板；
+     不一致就显示「—」（隐藏项，不出现在展开列表里），选任何模板都必定生效。 */
+  function sameStyle(a, t) {
+    if (!a || !t || !a.levels || !t.levels) { return false; }
+    var la = a.levels.filter(function (l) { return l.v !== '' && l.v !== null && l.v !== undefined; });
+    if (la.length !== t.levels.length) { return false; }
+    for (var k = 0; k < la.length; k++) {
+      var x = la[k], y = t.levels[k];
+      if (+x.v !== +y.v) { return false; }
+      if (String(x.color).toLowerCase() !== String(y.color).toLowerCase()) { return false; }
+      if ((x.on !== false) !== (y.on !== false)) { return false; }
+    }
+    return (a.showPrice !== false) === (t.showPrice !== false)
+        && (a.extend || 'none') === (t.extend || 'none')
+        && !!a.dash === !!t.dash
+        && (a.invert === true) === (t.invert === true)
+        && (a.hline !== false) === (t.hline !== false);
+  }
+  function renderTplSelect(style) {
     var o = C.getFibTpls();
-    var h = '';
+    var shown = String(o.cur);
+    if (style) {
+      shown = '';
+      for (var i = 0; i < o.tpls.length; i++) {
+        if (sameStyle(style, o.tpls[i])) { shown = String(i); break; }
+      }
+    }
+    var h = '<option value="" hidden disabled>—</option>';
     o.tpls.forEach(function (t, i) { h += '<option value="' + i + '">' + t.name + '</option>'; });
     var sel = $('#fm-tpl');
-    if (sel) { sel.innerHTML = h; sel.value = String(o.cur); }
+    if (sel) { sel.innerHTML = h; sel.value = shown; }
+    var tgt = shown === '' ? o.cur : +shown;
     var sv = $('#fm-tplsave');
-    if (sv) { sv.title = '把当前档位保存到「' + o.tpls[o.cur].name + '」（会覆盖它）'; }
+    if (sv) { sv.title = '把当前档位保存到「' + o.tpls[tgt].name + '」（会覆盖它）'; }
   }
 
   /* 把第 i 个模板套到当前 FIB（下拉 change 调用） */
@@ -7380,8 +7414,9 @@ footer{margin-top:14px;padding-top:10px}
     if (!draft.levels || !draft.levels.length) { draft.levels = clone(PRESETS.screen.levels); }
     if (draft.extend === undefined) { draft.extend = 'none'; }
     snapshot = clone(draft);
-    /* ★ 每次打开都重读模板：云同步下载后不刷新页面也能看到新模板 */
-    renderTplSelect();
+    /* ★ 每次打开都重读模板：云同步下载后不刷新页面也能看到新模板。
+       ★ 传入这条 FIB 的样式：与某个模板一致才显示它，否则显示「—」（2026-11-27） */
+    renderTplSelect(draft);
     renderLevels(); renderOpts(); renderCoords();
     $('#dc-modal').classList.add('show');
   }
@@ -7541,7 +7576,10 @@ footer{margin-top:14px;padding-top:10px}
      ★ 不再弹确认框：保存按钮的提示（title）已写明存到哪个模板、会覆盖它。 */
   $('#fm-tplsave').addEventListener('click', function () {
     if (!draft) { return; }
-    var i = +$('#fm-tpl').value;
+    /* ★ 下拉框显示「—」时值为空串，+'' = 0 会误存进模板1；
+       这里退回【当前模板】，与保存按钮提示里写的目标一致（2026-11-27） */
+    var v = $('#fm-tpl').value;
+    var i = v === '' ? C.getFibTpls().cur : +v;
     C.saveFibTpl(i, {
       levels: draft.levels, showPrice: draft.showPrice !== false,
       extend: draft.extend || 'none', dash: !!draft.dash,
