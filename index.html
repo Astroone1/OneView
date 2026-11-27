@@ -1414,7 +1414,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-27 11:52
+生成：2026-11-27 12:24
 </div>
 </footer>
 
@@ -8840,19 +8840,12 @@ footer{margin-top:14px;padding-top:10px}
          ★★ 2026-10-18 按用户要求【删掉 official 字段】：
             官方地址在本机 DNS 被污染、根本连不上，留着只会让人
             误以为"切过去就能用"。
-         ★★ 2026-11-27 换源：用户给的入口是
-             https://www.qorscuxtbd.com/zh-CN/futures/BTCUSDT（网页界面）。
-            真正取数用同一域名下的 fapi 接口，实测能力与官方一致：
-              · limit=1500 回 1500（limit=2000 回 400，同官方）
-              · interval 6h/8h/12h/1d/1w 全部可用
-              · endTime 往前翻页正常（oldest-1 能取到更早的一页）
-              · CORS `*`、Content-Type application/json
-         ★★ 注意：这个域名的【首次请求】会先落到一个人机验证页
-             （<title>Security Check</title>，HTTP 200 但返回 HTML）。
-             在正常浏览器里它会自动跳转到 /zh-CN 并通过，
-             通过后同一域名下的 API 就能正常返回 JSON（含 CORS `*`）。
-             所以它不能像旧镜像那样被脚本直连 —— 页面里用没问题。 */
-      mirror: 'https://www.qorscuxtbd.com',
+         ★★ 2026-10-21 换源：用户给的入口是
+             https://www.icnguxncf.com/zh-CN/futures/home（网页界面），
+             真正取数用同一域名下的 fapi 接口。实测透传：
+             带 x-mbx-used-weight-1m 头、CORS `*`、
+             limit=1500 回 1500 根（limit=2000 回 400，与官方一致）。 */
+      mirror: 'https://www.icnguxncf.com',
       path: '/fapi/v1/klines',
       /* 单次上限实测 1500，2000 会返回 400 */
       maxLimit: 1500,
@@ -8871,13 +8864,12 @@ footer{margin-top:14px;padding-top:10px}
     okx: {
       enabled: true,
       label: '欧易合约',
-      /* ★★ 2026-11-27 换源：用户给的入口是
-           https://www.btnpmnsguep.com/zh-hans/trade-swap/btc-usdt-swap?workspaceId=1
+      /* ★★ 2026-10-21 换源：用户给的入口是
+           https://www.btmxcqvwnhj.com/zh-hans/trade-swap/btc-usdt-swap#workspaceId=...
            （网页界面，锚点与 workspaceId 只是前端路由，与取数无关），
-           真正取数用同一域名下的 /api/v5 接口。实测与旧镜像完全一致：
-           code="0"、单页 300 根（给 1500 也只回 300）、after 翻页正常、
-           6H/12H/1D/1W/5m 全部可用、SWAP 清单 557 条、价格与旧镜像同刻一致。 */
-      mirror: 'https://www.btnpmnsguep.com',
+           真正取数用同一域名下的 /api/v5 接口。实测透传：
+           code="0"、单页 300 根、after 翻页正常、CORS 会回显 Origin。 */
+      mirror: 'https://www.btmxcqvwnhj.com',
       path: '/api/v5/market/history-candles',
       /* ★ 单次上限实测 300（给 1500/2000 都只回 300）。
          要更多必须用 after 翻页 —— 见 fetchOkxFutures(). */
@@ -10567,21 +10559,6 @@ footer{margin-top:14px;padding-top:10px}
     return fetch(url, opt).then(function (r) {
       if (timer) { clearTimeout(timer); }
       if (!r.ok) { throw new Error('HTTP ' + r.status + '：' + url.slice(0, 60)); }
-      /* ★ 人机验证页识别（2026-11-27 换源后新增）。
-         币安新镜像 bsmkweb/qorscuxtbd 这类站点，在【本浏览器第一次访问】
-         时会先回一个 HTTP 200 的 HTML「Security Check」页，而不是 JSON。
-         直接 r.json() 会抛 "Unexpected token '<'"，对用户毫无意义。
-         这里先看 Content-Type，是 HTML 就换成一句能指导行动的提示。 */
-      var ct = (r.headers.get('content-type') || '').toLowerCase();
-      if (ct.indexOf('json') < 0) {
-        return r.text().then(function (txt) {
-          if (/Security Check|人机|just a moment/i.test(txt)) {
-            throw new Error('镜像站需要先通过一次人机验证：'
-              + '浏览器打开该镜像首页，等它跳转完成后再刷新本页');
-          }
-          throw new Error('镜像站返回的不是数据（' + ct.split(';')[0] + '）');
-        });
-      }
       return r.json();
     }, function (e) {
       if (timer) { clearTimeout(timer); }
