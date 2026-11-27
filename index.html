@@ -1414,7 +1414,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-26 00:45
+生成：2026-11-27 11:52
 </div>
 </footer>
 
@@ -3079,25 +3079,14 @@ footer{margin-top:14px;padding-top:10px}
              4) 线条可见段太短、塞不下标签 -> 不画标签
            —— 原来第 3 种情况无条件触发，于是 FIB 滚到左边时
               标签仍被画在最右侧（用户看到的问题）。 */
-        var lw = ctx.measureText(labels[i]).width;
-        var segL = Math.max(x0, visL), segR = Math.min(xEnd, visR);
-        /* 价格标签【强制在右侧】。
-           原来分四种情况（右端 / 左端 / 贴右内缘 / 不画），
-           于是 FIB 靠右时标签会跑到左边 —— 位置不稳定，读起来要来回找。
-           现在统一贴右侧：优先跟线条右端，右端出屏就贴可视区右缘。
-           唯一例外：可见段短到塞不下标签时不画（避免糊成一团）。 */
-        var putRight = (xEnd >= visL && xEnd + 6 + lw <= visR - 4);
-        var tx;
-        if (putRight) {
-          ctx.textAlign = 'left';
-          tx = xEnd + 6;
-        } else if ((segR - segL) > lw + 20) {
-          ctx.textAlign = 'right';
-          tx = visR - 6;
-        } else {
-          continue;                       /* 可见段太短，不画 */
-        }
-        ctx.fillText(labels[i], tx, yy + 4);
+        /* ★★ 2026-11-27 按用户要求改成 TradingView 做法：
+           标签与线条是【一个整体】，永远贴在线条右端右侧（xEnd + 6）。
+           放不下时不挪进来、也不隐藏 —— 交给绘图区裁剪（drawDrawings 外层
+           已 clip 到主图矩形），能显示多少就显示多少。
+           原来的"放不下就贴可视区右缘 / 太短就不画"会让标签脱离线条、
+           压到线上，正是"缩进来很难看"的原因。 */
+        ctx.textAlign = 'left';
+        ctx.fillText(labels[i], xEnd + 6, yy + 4);
       }
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
@@ -4512,7 +4501,9 @@ footer{margin-top:14px;padding-top:10px}
       iCursor = iAt(m.x);
       frac = clamp((m.x - L.padL) / L.plotW, 0, 1);
     }
-    var nc = Math.round(clamp(st.count * factor, 20, N));
+    /* opts.baseCount：双指缩放传入第一帧的根数，factor 是"相对第一帧"的总比例 */
+    var baseC = (opts.baseCount > 0) ? opts.baseCount : st.count;
+    var nc = Math.round(clamp(baseC * factor, 20, N));
     st.count = nc;
     st.start = iCursor - frac * nc;
     clampView(); draw();
@@ -4591,6 +4582,23 @@ footer{margin-top:14px;padding-top:10px}
   /* 长按判定：500ms 内不移动超过 8px 就算"按住" */
   var LONG_PRESS_MS = 500;
   var LONG_PRESS_MOVE_TOL = 8;
+
+  /* ★★ 触摸灵敏度（2026-11-27，用户反馈"手机上触摸非常敏感"）。
+     只作用于 pointerType === 'touch'，桌面鼠标完全不变。想再调就改这里：
+       slop       手指移动超过多少 px 才算"开始拖"（鼠标是 3px）
+       panGain    平移跟手比例：1 = 手指走多少画面走多少；越小越迟钝
+       lockRatio  方向锁：一个方向的位移超过另一方向的这么多倍，就只走这个方向
+       pinchGain  双指缩放力度的指数：1 = 原样；越小越迟钝
+       pinchDead  双指张合比例变化小于这个值时不动（防手抖）
+       axisStep   价格轴上下滑，每累积多少 px 缩放一档 */
+  var TOUCH = {
+    slop: 10,
+    panGain: 0.7,
+    lockRatio: 2,
+    pinchGain: 0.6,
+    pinchDead: 0.03,
+    axisStep: 28
+  };
 
   function clearLongPressTimer() {
     if (longPress && longPress.timer) { clearTimeout(longPress.timer); }
@@ -4672,8 +4680,14 @@ footer{margin-top:14px;padding-top:10px}
       if (!d || !pinch.dist0) { return; }
       /* factor = 初始距离 / 当前距离 -> 张开(<1) = 放大 */
       var ratio = pinch.dist0 / d;
-      if (Math.abs(ratio - 1) < 0.01) { return; }
-      zoomAt(ratio, touchMid(e.touches[0], e.touches[1]), { anchor: pinch.anchor });
+      /* ★★ 2026-11-27 降敏：
+         ① 原来每帧都拿【当前】st.count 乘"相对初始距离"的比例 ——
+            同一个比例被逐帧重复乘，手指张开一点就缩放好几倍，这是"太敏感"的主因。
+            现在固定从第一帧的 count0 算：张开多少就缩多少，不会滚雪球。
+         ② 再乘一个力度指数 pinchGain，并加死区 pinchDead 防手抖。 */
+      if (Math.abs(ratio - 1) < TOUCH.pinchDead) { return; }
+      zoomAt(Math.pow(ratio, TOUCH.pinchGain), touchMid(e.touches[0], e.touches[1]),
+             { anchor: pinch.anchor, baseCount: pinch.count0 });
       return;
     }
 
@@ -4684,8 +4698,8 @@ footer{margin-top:14px;padding-top:10px}
     if (longPress.axis) {
       e.preventDefault();
       var dy = t.clientY - longPress.y0;
-      /* 累积到 16px 才动一次，避免抖动 */
-      if (Math.abs(dy) < 16) { return; }
+      /* 累积到 TOUCH.axisStep 才动一次，避免抖动（2026-11-27：16 → 28px 降敏） */
+      if (Math.abs(dy) < TOUCH.axisStep) { return; }
       var m = evPos(t);
       /* 往下滑(dy>0) = 缩小；往上(dy<0) = 放大 */
       zoomAxis(dy > 0 ? 1 : -1, { x: L.padL + L.plotW + 1, y: m.y });
@@ -4887,13 +4901,15 @@ footer{margin-top:14px;padding-top:10px}
           if (!bd.locked) {
             st.dragBody = {
               idx: hit0, kind: 'body', x: m.x, y: m.y, moved: false,
+              touch: e.pointerType === 'touch',
               orig: bd.pts.map(function (q) { return { i: q.i, p: q.p }; })
             };
             cv.style.cursor = 'move';
           }
         } else {
           /* 3) 空白处：平移画布 */
-          st.down = { x: m.x, y: m.y, start: st.start, moved: false, hit: -1 };
+          st.down = { x: m.x, y: m.y, start: st.start, moved: false, hit: -1,
+                      touch: e.pointerType === 'touch', axis: null };
         }
       }
     } else if (st.tool === 'erase') {
@@ -4996,7 +5012,9 @@ footer{margin-top:14px;padding-top:10px}
     if (st.dragBody) {
       var bd = st.drawings[st.dragBody.idx];
       var ddx = m.x - st.dragBody.x, ddy = m.y - st.dragBody.y;
-      if (!st.dragBody.moved && (Math.abs(ddx) > 3 || Math.abs(ddy) > 3)) {
+      /* ★ 触摸时起拖阈值用 TOUCH.slop，防止"点一下选中"被误判成拖动（2026-11-27） */
+      var bSlop = st.dragBody.touch ? TOUCH.slop : 3;
+      if (!st.dragBody.moved && (Math.abs(ddx) > bSlop || Math.abs(ddy) > bSlop)) {
         st.dragBody.moved = true;
       }
       if (st.dragBody.moved && bd && bd.pts && bd.pts.length) {
@@ -5005,6 +5023,8 @@ footer{margin-top:14px;padding-top:10px}
         for (var q = 0; q < bd.pts.length; q++) {
           bd.pts[q].i = clampIdx(st.dragBody.orig[q].i + di, true);
           bd.pts[q].p = st.dragBody.orig[q].p + dp;
+          /* ★ 改了下标必须同步时间，否则下一次轮询按旧时间把它拉回去（2026-11-27） */
+          stampPt(bd.pts[q]);
         }
       }
       st.hover = null;
@@ -5021,6 +5041,7 @@ footer{margin-top:14px;padding-top:10px}
       if (dd && dd.pts && dd.pts[st.dragAnchor.which]) {
         dd.pts[st.dragAnchor.which].i = clampIdx(iAt(m.x), true);
         dd.pts[st.dragAnchor.which].p = pAt(m.y);
+        stampPt(dd.pts[st.dragAnchor.which]);   /* ★ 同上：下标与时间同步 */
       }
       st.hover = null;
       draw();
@@ -5032,12 +5053,29 @@ footer{margin-top:14px;padding-top:10px}
 
     if (st.down) {
       var dx = m.x - st.down.x, dy = m.y - st.down.y;
-      if (!st.down.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+      /* ★★ 触摸降敏（2026-11-27）：鼠标仍是 3px 起拖、1:1 跟手、不锁方向。
+         触摸：① 起拖阈值 TOUCH.slop；② 起拖点重新作为基准，越过阈值时画面不跳；
+               ③ 方向锁：明显横滑就只横移，明显竖滑就只竖移，斜滑才两个方向都动；
+               ④ 位移乘 TOUCH.panGain。 */
+      var tch = !!st.down.touch;
+      var slop = tch ? TOUCH.slop : 3;
+      if (!st.down.moved && (Math.abs(dx) > slop || Math.abs(dy) > slop)) {
         st.down.moved = true;
         st.panning = { base: st.priceLock || autoPriceRange() };
         if (!st.priceLock) { setLock({ lo: st.panning.base.lo, hi: st.panning.base.hi }); }
+        if (tch) {
+          var ax = Math.abs(dx), ay = Math.abs(dy);
+          st.down.axis = (ax > ay * TOUCH.lockRatio) ? 'x' :
+                         (ay > ax * TOUCH.lockRatio) ? 'y' : 'xy';
+          st.down.x = m.x; st.down.y = m.y; st.down.start = st.start;
+          dx = 0; dy = 0;
+        }
       }
       if (st.down.moved) {
+        if (tch) {
+          dx = (st.down.axis === 'y') ? 0 : dx * TOUCH.panGain;
+          dy = (st.down.axis === 'x') ? 0 : dy * TOUCH.panGain;
+        }
         /* 横向 */
         st.start = st.down.start - dx / L.bw;
         clampView();
@@ -5187,7 +5225,7 @@ footer{margin-top:14px;padding-top:10px}
     var pt = { i: iAt(m.x), p: pAt(m.y) };
     /* ★ 同时记下时间戳（2026-11-26）：下标会随补历史整体偏移，时间不会。
        渲染与命中以时间为准（见 anchorT / syncAnchorIndexes）。 */
-    pt.t = anchorT(pt.i);
+    stampPt(pt);   /* ★ 2026-11-27：tm 毫秒时间为真值，支持未来区与小数位置 */
     if (!st.pending) {
       if (st.tool === 'hline') {
         st.drawings.push({ type: 'hline', pts: [pt], color: '#0f172a' });
@@ -5993,6 +6031,60 @@ footer{margin-top:14px;padding-top:10px}
        之后一律以 t 为准（i 只作为缓存，每次 bindData 后重新同步）。
      ★ 注意：t 用【该根 K 线的时间字符串】（ser.d[i]），不是毫秒数 ——
        与存档里其它字段同一口径，且字符串相等比较足够。 */
+  /* ★★ 2026-11-27 重做：锚点改用【毫秒时间 tm】为唯一真值。
+     上一版的三个漏洞（用户实测：漂移 + 左右拖不动、上下正常）：
+       ① 拖动只改了 i，没改 t；实时轮询每 1.5 秒调 replaceSeries →
+          syncAnchorIndexes 按旧 t 把 i 打回原位 —— 所以【横向被拉回、纵向不受影响】。
+          根源正是轮询换数据，用户判断是对的。
+       ② 画在最新一根右侧（未来区）的锚点 anchorT 返回 null，没有 t，
+          补历史后下标不跟着平移 → 漂。
+       ③ t 是取整后的整根时间，i 却是小数；每次同步都把小数吃掉 → 半根以内的抖动。
+     解法：tmAt(i) 支持小数与未来区（按相邻 K 线间隔内插/外推），
+           idxAtTm(tm) 是它的严格反函数；任何改 i 的地方都同步写 tm。 */
+  var _tmsCache = { src: null, n: -1, f: '', l: '', a: [] };
+  function _tms() {
+    var d = col('d') || [];
+    var n = d.length;
+    if (_tmsCache.src === d && _tmsCache.n === n &&
+        _tmsCache.f === d[0] && _tmsCache.l === d[n - 1]) { return _tmsCache.a; }
+    var a = new Array(n);
+    for (var k = 0; k < n; k++) { a[k] = parseStamp(d[k]); }
+    _tmsCache = { src: d, n: n, f: d[0], l: d[n - 1], a: a };
+    return a;
+  }
+  /* 下标（可小数、可越界）-> 毫秒时间 */
+  function tmAt(i) {
+    var a = _tms(), n = a.length;
+    if (!n || i === undefined || i === null || !isFinite(i)) { return null; }
+    if (n === 1) { return a[0]; }
+    if (i <= 0) { return a[0] + i * (a[1] - a[0]); }
+    if (i >= n - 1) { return a[n - 1] + (i - (n - 1)) * (a[n - 1] - a[n - 2]); }
+    var k = Math.floor(i);
+    return a[k] + (i - k) * (a[k + 1] - a[k]);
+  }
+  /* 毫秒时间 -> 下标（可小数、可越界），tmAt 的反函数 */
+  function idxAtTm(tm) {
+    var a = _tms(), n = a.length;
+    if (!n || tm === undefined || tm === null || !isFinite(tm)) { return null; }
+    if (n === 1) { return 0; }
+    if (tm <= a[0]) { var s0 = a[1] - a[0]; return s0 ? (tm - a[0]) / s0 : 0; }
+    if (tm >= a[n - 1]) { var s1 = a[n - 1] - a[n - 2]; return s1 ? (n - 1) + (tm - a[n - 1]) / s1 : n - 1; }
+    var lo = 0, hi = n - 1;
+    while (hi - lo > 1) {
+      var mid = (lo + hi) >> 1;
+      if (a[mid] <= tm) { lo = mid; } else { hi = mid; }
+    }
+    var span = a[hi] - a[lo];
+    return lo + (span ? (tm - a[lo]) / span : 0);
+  }
+  /* 用户改了 pt.i 之后调用：把当前位置换算成时间写进 tm（t 只留作可读备注） */
+  function stampPt(pt) {
+    if (!pt) { return; }
+    var v = tmAt(pt.i);
+    if (v === null) { return; }
+    pt.tm = Math.round(v);
+    pt.t = dateAt(pt.i);
+  }
   function anchorT(i) {
     var d = col('d');
     if (i === undefined || i === null) { return null; }
@@ -6024,20 +6116,27 @@ footer{margin-top:14px;padding-top:10px}
   function syncAnchorIndexes() {
     var dd = st.drawings;
     if (!dd || !dd.length) { return; }
-    var dirty = false;        /* 有锚点从旧格式补出了 t → 需要回写存档 */
+    var dirty = false;        /* 有锚点从旧格式补出了 tm → 需要回写存档 */
     for (var k = 0; k < dd.length; k++) {
       var d = dd[k];
       if (!d || !d.pts) { continue; }
       for (var j = 0; j < d.pts.length; j++) {
         var pt = d.pts[j];
         if (!pt) { continue; }
-        if (pt.t) {
-          var idx = indexOfT(pt.t);
-          if (idx !== null && idx !== pt.i) { pt.i = idx; dirty = true; }
+        if (typeof pt.tm === 'number' && isFinite(pt.tm)) {
+          /* ★ 正常路径：时间是真值，下标只是它在当前数据里的投影 */
+          var idx = idxAtTm(pt.tm);
+          if (idx !== null && Math.abs(idx - pt.i) > 1e-6) { pt.i = idx; }
+        } else if (pt.t) {
+          /* 上一版存档：t 是取整后的整根时间，i 的小数部分另行保留 */
+          var base = parseStamp(pt.t);
+          var frac = (typeof pt.i === 'number') ? pt.i - Math.round(pt.i) : 0;
+          var bi = base ? idxAtTm(base) : null;
+          if (bi !== null) { pt.i = bi + frac; }
+          stampPt(pt); dirty = true;
         } else {
-          /* 还没有 t（旧存档）：用当前下标折算一次，之后就有 t 了 */
-          var tv = anchorT(pt.i);
-          if (tv) { pt.t = tv; dirty = true; }
+          /* 最老的存档：只有 i，用当前下标折算一次 */
+          stampPt(pt); dirty = true;
         }
       }
     }
@@ -8741,12 +8840,19 @@ footer{margin-top:14px;padding-top:10px}
          ★★ 2026-10-18 按用户要求【删掉 official 字段】：
             官方地址在本机 DNS 被污染、根本连不上，留着只会让人
             误以为"切过去就能用"。
-         ★★ 2026-10-21 换源：用户给的入口是
-             https://www.icnguxncf.com/zh-CN/futures/home（网页界面），
-             真正取数用同一域名下的 fapi 接口。实测透传：
-             带 x-mbx-used-weight-1m 头、CORS `*`、
-             limit=1500 回 1500 根（limit=2000 回 400，与官方一致）。 */
-      mirror: 'https://www.icnguxncf.com',
+         ★★ 2026-11-27 换源：用户给的入口是
+             https://www.qorscuxtbd.com/zh-CN/futures/BTCUSDT（网页界面）。
+            真正取数用同一域名下的 fapi 接口，实测能力与官方一致：
+              · limit=1500 回 1500（limit=2000 回 400，同官方）
+              · interval 6h/8h/12h/1d/1w 全部可用
+              · endTime 往前翻页正常（oldest-1 能取到更早的一页）
+              · CORS `*`、Content-Type application/json
+         ★★ 注意：这个域名的【首次请求】会先落到一个人机验证页
+             （<title>Security Check</title>，HTTP 200 但返回 HTML）。
+             在正常浏览器里它会自动跳转到 /zh-CN 并通过，
+             通过后同一域名下的 API 就能正常返回 JSON（含 CORS `*`）。
+             所以它不能像旧镜像那样被脚本直连 —— 页面里用没问题。 */
+      mirror: 'https://www.qorscuxtbd.com',
       path: '/fapi/v1/klines',
       /* 单次上限实测 1500，2000 会返回 400 */
       maxLimit: 1500,
@@ -8765,12 +8871,13 @@ footer{margin-top:14px;padding-top:10px}
     okx: {
       enabled: true,
       label: '欧易合约',
-      /* ★★ 2026-10-21 换源：用户给的入口是
-           https://www.btmxcqvwnhj.com/zh-hans/trade-swap/btc-usdt-swap#workspaceId=...
+      /* ★★ 2026-11-27 换源：用户给的入口是
+           https://www.btnpmnsguep.com/zh-hans/trade-swap/btc-usdt-swap?workspaceId=1
            （网页界面，锚点与 workspaceId 只是前端路由，与取数无关），
-           真正取数用同一域名下的 /api/v5 接口。实测透传：
-           code="0"、单页 300 根、after 翻页正常、CORS 会回显 Origin。 */
-      mirror: 'https://www.btmxcqvwnhj.com',
+           真正取数用同一域名下的 /api/v5 接口。实测与旧镜像完全一致：
+           code="0"、单页 300 根（给 1500 也只回 300）、after 翻页正常、
+           6H/12H/1D/1W/5m 全部可用、SWAP 清单 557 条、价格与旧镜像同刻一致。 */
+      mirror: 'https://www.btnpmnsguep.com',
       path: '/api/v5/market/history-candles',
       /* ★ 单次上限实测 300（给 1500/2000 都只回 300）。
          要更多必须用 after 翻页 —— 见 fetchOkxFutures(). */
@@ -10460,6 +10567,21 @@ footer{margin-top:14px;padding-top:10px}
     return fetch(url, opt).then(function (r) {
       if (timer) { clearTimeout(timer); }
       if (!r.ok) { throw new Error('HTTP ' + r.status + '：' + url.slice(0, 60)); }
+      /* ★ 人机验证页识别（2026-11-27 换源后新增）。
+         币安新镜像 bsmkweb/qorscuxtbd 这类站点，在【本浏览器第一次访问】
+         时会先回一个 HTTP 200 的 HTML「Security Check」页，而不是 JSON。
+         直接 r.json() 会抛 "Unexpected token '<'"，对用户毫无意义。
+         这里先看 Content-Type，是 HTML 就换成一句能指导行动的提示。 */
+      var ct = (r.headers.get('content-type') || '').toLowerCase();
+      if (ct.indexOf('json') < 0) {
+        return r.text().then(function (txt) {
+          if (/Security Check|人机|just a moment/i.test(txt)) {
+            throw new Error('镜像站需要先通过一次人机验证：'
+              + '浏览器打开该镜像首页，等它跳转完成后再刷新本页');
+          }
+          throw new Error('镜像站返回的不是数据（' + ct.split(';')[0] + '）');
+        });
+      }
       return r.json();
     }, function (e) {
       if (timer) { clearTimeout(timer); }
