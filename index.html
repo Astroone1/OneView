@@ -1414,7 +1414,7 @@ footer{margin-top:14px;padding-top:10px}
 指标：<span id="vk-ind">—</span>　|　
 取数与引导：<code>viewer/</code>　|　
 独立行情看图 · 图表引擎摘录自 <code>model/chart_engine.js</code>　|　
-生成：2026-11-27 19:46
+生成：2026-11-28 12:49
 </div>
 </footer>
 
@@ -3127,6 +3127,8 @@ footer{margin-top:14px;padding-top:10px}
     view: null,        // 框内自由画布的窗口 { start, count, total }
     drag: null,        // 框内横向拖动状态
     hover5: -1,        // 光标下的 5m 下标（框图例跟着它走；-1 = 光标不在框内）
+    btnHover: '',      // 左下/右下翻页按钮的悬停态：'' | 'prev' | 'next'
+    btnRepeat: null,   // 按住翻页按钮的连发状态 { dir, delay, timer }
     err: ''            // 解压/解析错误
   };
 
@@ -3377,8 +3379,125 @@ footer{margin-top:14px;padding-top:10px}
                             这个值只在两者都极小时兜底。 */
   var SP_PADT = 26;      /* 框内【上】留白：这一条专门放"开高低收"图例，
                             图例落在留白带里就不会压住子周期 K 线 */
-  var SP_PADB = 14;      /* 框内【下】留白 */
+  var SP_PADB = 14;      /* 框内【下】留白（保持原值）。翻页按钮画在框底边线上、
+                            一半在框内一半在框外，不占用这排留白，K 线位置不变。 */
   var SP_MINH = 104;     /* 框最小高度：行情很小时也保证图例 + K 线都看得清 */
+
+  /* ★ 2026-11-28：次级框【左下角 / 右下角】的 5m 单根翻页按钮。
+     背景：日线一根含 288 根 5m，框里只显示得下一小段；原先只能鼠标拖动，
+     精度低、容易滑过头。按钮放在框底左右角（圆心压在框底边线上）：
+       左 = 后退（看更早 1 根），右 = 前进（看更晚 1 根）。
+     单击 = 走 1 根；按住 = 连续走（320ms 后每 80ms 一根）。
+     ★ 圆形、左右对称，圆心距左右边各 14px；按钮一半在框外，不占框内留白，
+       所以框的高度和 K 线位置与改动前完全一样（不会再显得底部空一块）。 */
+  var SP_BTN_R = 10;     /* 圆按钮半径 */
+  var SP_BTN_EDGE = 14;  /* 圆心距框左右边 */
+  var SP_BTN_HIT = 28;   /* 命中方框边长（比圆大一圈，好点） */
+
+  /* 两个按钮的中心与命中框（画布坐标）。框太窄放不下两枚就不画。
+     ★ 不缓存：每次都按当前 rect 现算，主图缩放/平移后自然跟着走。 */
+  function spBtnRects(rr) {
+    if (!rr || rr.empty) { return null; }
+    if (rr.x0 === undefined || rr.x1 === undefined || rr.y1 === undefined) { return null; }
+    /* 用【完整框】的左右缘定位按钮：框超出可视区时，右按钮跟着框的右边一起在屏幕外，
+       拖动画面就能露出来；不会黏在屏幕边缘。 */
+    var fx0 = (rr.fx0 !== undefined) ? rr.fx0 : rr.x0;
+    var fx1 = (rr.fx1 !== undefined) ? rr.fx1 : rr.x1;
+    /* 至少留出两个圆 + 中间一道缝，放不下就不画 */
+    if (fx1 - fx0 < SP_BTN_EDGE * 2 + SP_BTN_R * 2 + 8) { return null; }
+    var cy = rr.y1;
+    var maxCy = L.priceB - SP_BTN_R - 2;   /* 别被主图下沿裁掉 */
+    if (cy > maxCy) { cy = maxCy; }
+    function mk(cx) {
+      return { cx: cx, cy: cy, r: SP_BTN_R,
+               x: cx - SP_BTN_HIT / 2, y: cy - SP_BTN_HIT / 2,
+               w: SP_BTN_HIT, h: SP_BTN_HIT };
+    }
+    return { prev: mk(fx0 + SP_BTN_EDGE), next: mk(fx1 - SP_BTN_EDGE) };
+  }
+
+  /* 光标是否落在某个可用按钮上；返回 '' / 'prev' / 'next'。
+     ★ 到达两端时该按钮置灰【且不响应】—— 鼠标保持框内的拖动光标。 */
+  function subPathButtonAt(m) {
+    var rr = spState.rect, vs = spState.view;
+    if (!rr || rr.empty || !vs) { return ''; }
+    var b = spBtnRects(rr);
+    if (!b) { return ''; }
+    var maxStart = Math.max(0, rr.total - rr.visCount);
+    function inside(q) {
+      return m.x >= q.x && m.x <= q.x + q.w && m.y >= q.y && m.y <= q.y + q.h;
+    }
+    if (inside(b.prev) && vs.start > 0.01) { return 'prev'; }
+    if (inside(b.next) && vs.start < maxStart - 0.01) { return 'next'; }
+    return '';
+  }
+
+  /* 走一根；dir = -1 后退（更早）/ +1 前进（更晚）。
+     返回是否真的移动了（到边界时不动，调用方无需关心）。 */
+  function spStepSubPath(dir) {
+    var rr = spState.rect, vs = spState.view;
+    if (!rr || rr.empty || !vs) { return false; }
+    var vis = Math.max(1, rr.visCount || 1);
+    var maxStart = Math.max(0, (vs.total || 0) - vis);
+    var target = clamp(Math.round(vs.start) + dir, 0, maxStart);
+    if (target === vs.start) { return false; }
+    vs.start = target;
+    draw();
+    return true;
+  }
+
+  function stopSpBtnRepeat() {
+    var r = spState.btnRepeat;
+    if (!r) { return; }
+    if (r.delay) { clearTimeout(r.delay); }
+    if (r.timer) { clearInterval(r.timer); }
+    spState.btnRepeat = null;
+  }
+
+  /* 按住按钮连续翻：先立即走一根，320ms 后开始每 80ms 走一根。
+     单击（<320ms）就只走一根，不会连跳。 */
+  function startSpBtnRepeat(dir) {
+    stopSpBtnRepeat();
+    spStepSubPath(dir);
+    var rep = { dir: dir, delay: null, timer: null };
+    rep.delay = setTimeout(function () {
+      rep.timer = setInterval(function () {
+        if (!spStepSubPath(dir)) { stopSpBtnRepeat(); }
+      }, 80);
+    }, 320);
+    spState.btnRepeat = rep;
+  }
+
+  /* 画一枚圆形小按钮：白底 + 细边框 + chevron 箭头。
+     ★ 箭头用两条线段画，不用 '‹'/'›' 字符 —— 字体不同平台尺寸不一。 */
+  function drawSpButton(b, dir, enabled, hovered) {
+    ctx.save();
+    ctx.globalAlpha = enabled ? 1 : 0.35;
+    ctx.beginPath();
+    ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2);
+    ctx.fillStyle = (hovered && enabled) ? '#e2e8f0' : '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = (hovered && enabled) ? 'rgba(19,23,34,.72)' : 'rgba(19,23,34,.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    var dx = 1.7, dy = 3.8;
+    ctx.beginPath();
+    if (dir === 'prev') {
+      ctx.moveTo(b.cx + dx, b.cy - dy);
+      ctx.lineTo(b.cx - dx, b.cy);
+      ctx.lineTo(b.cx + dx, b.cy + dy);
+    } else {
+      ctx.moveTo(b.cx - dx, b.cy - dy);
+      ctx.lineTo(b.cx + dx, b.cy);
+      ctx.lineTo(b.cx - dx, b.cy + dy);
+    }
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+  }
 
   function drawSubPath() {
     spState.rect = null;
@@ -3429,20 +3548,13 @@ footer{margin-top:14px;padding-top:10px}
     var kLineW = total * spBw;
     var w = Math.min(Math.max(legendNeed + 10, SP_MIN_W), SP_W);
 
-    var barL = X(bar) - L.bw / 2;                   /* K 线左边缘 */
     var barR = X(bar) + L.bw / 2;                   /* K 线右边缘 */
-    var roomR = clipR - barR, roomL = barL - clipL;
-    var x0, x1;
-    if (roomR >= w) {
-      x0 = barR; x1 = x0 + w;                       /* 右侧够：向右无缝展开 */
-    } else if (roomL >= w) {
-      x1 = barL; x0 = x1 - w;                       /* 右侧不够、左侧够：改向左展开 */
-    } else {
-      /* 两侧都不够宽：优先保证完全落在绘图区内，K 线等宽不变 */
-      x0 = clamp(barR, clipL, Math.max(clipL, clipR - w));
-      x1 = Math.min(clipR, x0 + w);
-      x0 = Math.max(clipL, x1 - w);
-    }
+    /* ★ 2026-11-28：次级框【永远从 K 线右缘向右展开】，不再因右侧空间不足翻到左边。
+       用户要求：图表本身是可以左右拖动的无限画布，右侧放不下就让框超出可视区，
+       能显示多少显示多少；拖一下画面就能看到框的右半段。
+       （旧逻辑会在右侧不够、左侧够时把框改到 K 线左侧，和"次级路径"的读图习惯相反。） */
+    var x0 = barR;
+    var x1 = x0 + w;
     var visCount = Math.max(1, Math.min(total, Math.floor((x1 - x0) / spBw)));
 
     /* 框内窗口：只记起点；根数由框宽与比例决定（缩放主图自动跟随） */
@@ -3475,10 +3587,11 @@ footer{margin-top:14px;padding-top:10px}
     if (bot - top < 40) { return; }
 
     var rx0 = Math.max(x0, clipL), rx1 = Math.min(x1, clipR);
-    /* 几乎全被裁掉就不画（阈值放低到 40：期货一天只有 4~6 根小时线，
-       框本来就窄，阈值太高会整天画不出来） */
-    if (rx1 - rx0 < 40) { return; }
-    spState.rect = { x0: rx0, x1: rx1, y0: top, y1: bot,
+    /* ★ 不再要求"至少露出 40px"：右侧只剩一条窄边时也画出来，
+       用户往左拖一下画面就能看到完整框。整段都在可视区外才不画。 */
+    if (rx1 - rx0 < 2) { return; }
+    spState.rect = { x0: rx0, x1: rx1, fx0: x0, fx1: x1,
+                     y0: top, y1: bot,
                      spBw: spBw, visCount: visCount, total: total,
                      boxW: x1 - x0, drawX0: x0, base: base };
 
@@ -3583,6 +3696,17 @@ footer{margin-top:14px;padding-top:10px}
       ctx.restore();
     }
 
+    /* ---- 左下 / 右下：5m 翻页按钮 ----
+       只要框内放得下就画（两端置灰），这样功能始终可见、位置固定；
+       框太窄（被裁到 < 68px）时让位给 K 线，仍可手动拖动。 */
+    var br = spBtnRects(spState.rect);
+    if (br) {
+      var canPrev = vs.start > 0.01;
+      var canNext = vs.start < total - visCount - 0.01;
+      drawSpButton(br.prev, 'prev', canPrev, spState.btnHover === 'prev');
+      drawSpButton(br.next, 'next', canNext, spState.btnHover === 'next');
+    }
+
     ctx.restore();
   }
 
@@ -3664,6 +3788,30 @@ footer{margin-top:14px;padding-top:10px}
      原来会在鼠标悬到图元上时给它的可抓区域描一圈淡蓝虚线框，
      但那个框的左右两条边看起来像"多出来的竖虚线"，反而干扰看图。
      现在只用【光标形状】（move / grab）来提示"这里能不能抓"。 */
+
+  /* 次级框展开时，主图右下角的「A（自动居中）」DOM 按钮可能正好压在框的右下角，
+     和翻页按钮抢同一块位置（DOM 在 canvas 上层，会抢走点击）。
+     只有两者真的重叠时才隐藏 A；框在别处时 A 照常显示。 */
+  function syncAutoFitVisibility() {
+    var af = document.getElementById('dc-autofit');
+    if (!af) { return; }
+    var hide = false;
+    var rr = spState.rect;
+    if (rr && !rr.empty) {
+      var b = spBtnRects(rr);
+      if (b) {
+        var clipR = L.padL + L.plotW;
+        var hitA = function (q) {
+          var ox = (q.x < clipR - 6) && (q.x + q.w > clipR - 40);
+          var oy = (q.y < L.priceB - 6) && (q.y + q.h > L.priceB - 40);
+          return ox && oy;
+        };
+        /* 框伸出屏幕右侧时，露出来的可能是左按钮 —— 两个都要判 */
+        hide = hitA(b.prev) || hitA(b.next);
+      }
+    }
+    af.style.visibility = hide ? 'hidden' : '';
+  }
 
   /* ---------------- 范围测量（Shift + 单击两次） ----------------
      参考 TradingView 的"范围"工具，但**只量 K 线根数**，不量高度：
@@ -4238,6 +4386,7 @@ footer{margin-top:14px;padding-top:10px}
     drawMeasure();           /* Shift+拖拽的范围测量（临时，不落盘） */
     drawSubPath();           /* Alt+点击展开的 5m 内部路径 */
     drawSubPathNote();       /* 按需取数中的「正在取 / 取不到」提示 */
+    syncAutoFitVisibility(); /* 次级框占住右下角时，暂时让 A 按钮 */
     updateSelBar();          /* 浮栏跟随图元（拖动/缩放/平移时同步） */
 
     /* 各副面板 */
@@ -4648,6 +4797,10 @@ footer{margin-top:14px;padding-top:10px}
     var t = e.touches[0];
     var m0 = evPos(t);
 
+    /* 次级框底部翻页按钮：交给 pointerdown 处理，不要启动「长按看盘」计时器，
+       否则按住连翻 500ms 后会突然进入十字光标冻结模式。 */
+    if (subPathButtonAt(m0)) { e.preventDefault(); return; }
+
     /* 价格轴：单指上下滑 = 缩放价格范围。
        ★ 这里不进入平移，也不触发长按 —— 价格轴"不纳入自由画布"。
        ★★ 必须置 st.touchAxis：浏览器在触摸时【同时】派发 pointerdown，
@@ -4809,6 +4962,15 @@ footer{margin-top:14px;padding-top:10px}
       }
       return;
     }
+    /* ---------------- 次级框底部翻页按钮（2026-11-28） ----------------
+       必须放在「框内拖动」之前：按钮也落在框内，
+       先判按钮，否则按下去会变成开始拖动。 */
+    var spBtn = subPathButtonAt(m);
+    if (spBtn) {
+      e.preventDefault();
+      startSpBtnRepeat(spBtn === 'prev' ? -1 : 1);
+      return;
+    }
     /* ---------------- 笔记（Z + 左键） ----------------
        按住 Z 再左键单击 = 直接在这个位置开笔记输入框，
        写完自动回到原来的工具，不必先去点"笔记"工具按钮。
@@ -4964,7 +5126,12 @@ footer{margin-top:14px;padding-top:10px}
        光标离开框就复位（图例回退到该 K 线首根）。
        这里只更新状态，不单独 draw()：pointermove 末尾本来就会重绘一次。 */
     if (subPathVisible()) {
-      spState.hover5 = subPathIndexAt(m);
+      var spBtnHover = subPathButtonAt(m);
+      spState.btnHover = spBtnHover;
+      /* 悬在翻页按钮上时不取 5m 图例，否则底部角落的数字会乱跳 */
+      spState.hover5 = spBtnHover ? -1 : subPathIndexAt(m);
+    } else {
+      spState.btnHover = '';
     }
 
     /* 范围测量锁定起点后：鼠标滑到哪，长度就到哪（不需要按住 Shift） */
@@ -5096,6 +5263,11 @@ footer{margin-top:14px;padding-top:10px}
       if (st.down && st.down.moved) { cv.style.cursor = 'grabbing'; }
       else if (st.dragAnchor || st.dragBody || st.dragSpan) { cv.style.cursor = 'grabbing'; }
       else if (spState.drag) { cv.style.cursor = 'ew-resize'; }
+      else if (subPathButtonAt(m)) {
+        /* 次级框底部翻页按钮：可点 */
+        cv.style.cursor = 'pointer';
+        st.hoverHit = null;
+      }
       else if (inSubPathRect(m)) {
         /* 次级框内：提示"这里可以左右拖" */
         cv.style.cursor = 'ew-resize';
@@ -5117,6 +5289,8 @@ footer{margin-top:14px;padding-top:10px}
   });
 
   cv.addEventListener('pointerup', function (e) {
+    /* 翻页按钮的按住连发：任何松手都先停 */
+    stopSpBtnRepeat();
     /* 次级框内拖动结束 */
     if (spState.drag) {
       spState.drag = null;
@@ -5161,6 +5335,8 @@ footer{margin-top:14px;padding-top:10px}
     st.hover = null; st.mouse = null; st.down = null; st.panning = null;
     st.dragAnchor = null; st.dragBody = null; st.dragSpan = null;
     spState.drag = null;
+    spState.btnHover = '';
+    stopSpBtnRepeat();
     releaseSelBarPassThrough();
     draw();  });
   /* 双击 FIB = 打开设置面板（TradingView 行为） */
@@ -6542,9 +6718,15 @@ footer{margin-top:14px;padding-top:10px}
     subpathView: function () {
       if (!spState.view) { return null; }
       var rr = spState.rect || {};
+      var maxStart = Math.max(0, (rr.total || 0) - (rr.visCount || 0));
       return { start: spState.view.start, total: spState.view.total,
                visCount: rr.visCount || 0, spBw: rr.spBw || 0,
-               boxW: rr.x1 !== undefined ? Math.round(rr.x1 - rr.x0) : 0 };
+               boxW: (rr.fx1 !== undefined) ? Math.round(rr.fx1 - rr.fx0)
+                     : (rr.x1 !== undefined ? Math.round(rr.x1 - rr.x0) : 0),
+               fullX0: rr.fx0, fullX1: rr.fx1,
+               canPrev: !!rr.total && spState.view.start > 0.01,
+               canNext: !!rr.total && spState.view.start < maxStart - 0.01,
+               btns: spBtnRects(rr) };
     },
     /* 取某根高周期 K 线对应的子周期明细（调试/校验用）。
        返回 {minutes, bars:[{o,h,l,c}...]}；该日无数据时 bars 为空数组。 */
@@ -6898,7 +7080,8 @@ footer{margin-top:14px;padding-top:10px}
     /* 次级路径：新品种的载荷可能没有，先清空旧数据 */
     spState.data = null; spState.loading = false; spState.bar = -1;
     spState.pending = -2; spState.rect = null; spState.view = null;
-    spState.drag = null; spState.hover5 = -1; spState.err = '';
+    stopSpBtnRepeat();
+    spState.drag = null; spState.hover5 = -1; spState.btnHover = ''; spState.err = '';
     spErrNote = '';                /* 上一个品种的取数错误不要带过来 */
     /* 图元存档按 D.key 区分，重新读取 */
     st.drawings = [];
